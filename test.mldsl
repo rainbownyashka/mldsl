@@ -10,5 +10,5 @@ event(вход) {
     
 }   
 function hello {
-    # player.message("hiв")
+    player.message("hiв")
 }
