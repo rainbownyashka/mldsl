@@ -20,3 +20,7 @@ plan.json
 # Raw dumps from game (external/large)
 regallactions_export.txt
 allactions.txt
+
+# Local-only "premium" tools (not for GitHub)
+tools/_premium/
+.venv/
