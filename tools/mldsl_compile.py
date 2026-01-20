@@ -244,9 +244,9 @@ ASSIGN_RE = re.compile(
 )
 SAVE_SHORTHAND_RE = re.compile(rf"^\s*({NAME_RE})\s*~\s*(.+?)\s*;?\s*$", re.I)
 
-IFPLAYER_RE = re.compile(r"^\s*if_?player\.([\w\u0400-\u04FF]+)\s*\((.*)\)\s*\{\s*$", re.I)
+IFPLAYER_RE = re.compile(r"^\s*(?:if_?player|если_?игрок)\.([\w\u0400-\u04FF]+)\s*\((.*)\)\s*\{\s*$", re.I)
 SELECTOBJECT_IFPLAYER_RE = re.compile(r"^\s*SelectObject\.player\.IfPlayer\.([\w\u0400-\u04FF]+)\s*\{\s*$", re.I)
-IFGAME_RE = re.compile(r"^\s*if_?game\.([\w\u0400-\u04FF]+)\s*\((.*)\)\s*\{\s*$", re.I)
+IFGAME_RE = re.compile(r"^\s*(?:if_?game|если_?игра)\.([\w\u0400-\u04FF]+)\s*\((.*)\)\s*\{\s*$", re.I)
 IFGAME_OLD_RE = re.compile(r"^\s*IfGame\.([\w\u0400-\u04FF]+)\s*\{\s*$", re.I)
 IF_RE = re.compile(r"^\s*if\s+(.+?)\s*\{\s*$", re.I)
 IFTEXT_RE = re.compile(r"^\s*iftext\s+(.+?)\s*\{\s*$", re.I)
@@ -599,9 +599,23 @@ def compile_line(api: dict, line: str):
             continue
         raw = kv[ename].strip().strip('"')
         opts = e.get("options") or {}
+        clicks = None
         if raw in opts:
             clicks = opts[raw]
         else:
+            # allow minor normalization for newbies: underscores/spaces/case.
+            raw2 = raw.replace("_", " ")
+            if raw2 in opts:
+                clicks = opts[raw2]
+            else:
+                opts_norm = {norm_ident(k): v for k, v in opts.items()}
+                raw_norm = norm_ident(raw)
+                raw2_norm = norm_ident(raw2)
+                if raw_norm in opts_norm:
+                    clicks = opts_norm[raw_norm]
+                elif raw2_norm in opts_norm:
+                    clicks = opts_norm[raw2_norm]
+        if clicks is None:
             # allow numeric
             clicks = int(raw)
         pieces.append(f"clicks({e['slot']},{clicks})=0")
