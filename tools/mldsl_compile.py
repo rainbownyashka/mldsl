@@ -17,6 +17,16 @@ def load_api():
 def warn(msg: str) -> None:
     print(f"[предупреждение] {msg}", file=sys.stderr)
 
+def norm_ident(s: str) -> str:
+    # normalization for beginner-friendly aliases:
+    # - ignore case
+    # - ignore underscores/spaces/dashes
+    # - keep russian/latin/nums/%
+    t = strip_colors(s or "").strip().lower()
+    for ch in ("_", " ", "-", "\t"):
+        t = t.replace(ch, "")
+    return t
+
 def strip_colors(text: str) -> str:
     if not text:
         return ""
@@ -107,14 +117,32 @@ def event_variant_to_name(variant: str) -> str:
     return variant
 
 def find_action(api: dict, module: str, func: str):
-    # module aliases (keep in sync with extension.js)
+    # module aliases for beginner-friendly syntax (keep minimal / RU-first)
     module_aliases = {
-        "игрок": "player",
         "player": "player",
-        "событие": "event",
-        "event": "event",
+        "игрок": "player",
+        "game": "game",
+        "игра": "game",
+        "var": "var",
+        "перем": "var",
+        "переменная": "var",
+        "array": "array",
+        "массив": "array",
+        "if_player": "if_player",
+        "ifplayer": "if_player",
+        "еслиигрок": "if_player",
+        "если_игрок": "if_player",
+        "if_game": "if_game",
+        "ifgame": "if_game",
+        "еслиигра": "if_game",
+        "если_игра": "if_game",
+        "if_value": "if_value",
+        "ifvalue": "if_value",
+        "еслипеременная": "if_value",
+        "если_переменная": "if_value",
+        "misc": "misc",
     }
-    module = module_aliases.get(module, module)
+    module = module_aliases.get(norm_ident(module), module)
     mod = api.get(module)
     if not mod:
         return None, None
@@ -122,9 +150,13 @@ def find_action(api: dict, module: str, func: str):
     if func in mod:
         return func, mod[func]
     # alias match
+    func_n = norm_ident(func)
     for canon, spec in mod.items():
         aliases = spec.get("aliases") or []
         if func in aliases:
+            return canon, spec
+        # allow matching aliases without underscores (сообщениеравно vs сообщение_равно)
+        if func_n and (func_n == norm_ident(canon) or any(func_n == norm_ident(a) for a in aliases)):
             return canon, spec
     return None, None
 
@@ -202,12 +234,12 @@ def wrap_value(mode: str | None, value: str) -> str:
 # - keep calls/modules stricter for now (no % in module/function names)
 NAME_RE = r"[%%\w\u0400-\u04FF]+"
 CALL_RE = re.compile(r"^\s*([\w\u0400-\u04FF]+)\.([\w\u0400-\u04FF]+)\s*\((.*)\)\s*;?\s*$")
-EVENT_RE = re.compile(r"^\s*event\s*\(\s*([\w\u0400-\u04FF]+)\s*\)\s*\{\s*$", re.I)
+EVENT_RE = re.compile(r"^\s*(?:event|событие)\s*\(\s*([\w\u0400-\u04FF]+)\s*\)\s*\{\s*$", re.I)
 BARE_CALL_RE = re.compile(r"^\s*([\w\u0400-\u04FF]+)\s*\((.*)\)\s*;?\s*$")
 FUNC_RE = re.compile(rf"^\s*(?:func|function|def|функция)\s*(?:\(\s*)?([\w\u0400-\u04FF]+)(?:\s*\))?\s*\{{\s*$", re.I)
 LOOP_RE = re.compile(rf"^\s*(?:loop|цикл)\s+([\w\u0400-\u04FF]+)(?:\s+every)?\s+(\d+)\s*\{{\s*$", re.I)
 ASSIGN_RE = re.compile(
-    rf"^\s*(?:(save)\s+)?({NAME_RE})\s*(?:~\s*)?(?:(\*)\s*)?=\s*(.+?)\s*;?\s*$",
+    rf"^\s*(?:(save|сохранить|сохранена|сохраненная|сохранённая)\s+)?({NAME_RE})\s*(?:~\s*)?(?:(\*)\s*)?=\s*(.+?)\s*;?\s*$",
     re.I,
 )
 SAVE_SHORTHAND_RE = re.compile(rf"^\s*({NAME_RE})\s*~\s*(.+?)\s*;?\s*$", re.I)
@@ -597,7 +629,7 @@ def compile_builtin(api: dict, line: str):
         rhs = (m_assign.group(4) or "").strip()
 
         saved = False
-        if save_kw == "save":
+        if save_kw in ("save", "сохранить", "сохранена", "сохраненная", "сохранённая"):
             saved = True
         # support `name~ = ...` and `name ~ = ...`
         if re.search(rf"^\s*(?:save\s+)?{re.escape(name)}\s*~", line, re.I):
@@ -924,8 +956,56 @@ def compile_entries(path: Path) -> list[dict]:
     api = load_api()
     sign1_aliases = load_sign1_aliases()
     blocks = load_allactions_map()
+
+    def load_with_imports(p: Path, stack: list[Path]) -> list[str]:
+        rp = p.resolve()
+        if rp in stack:
+            warn(f"циклический import: {' -> '.join(str(x.name) for x in stack + [rp])}")
+            return []
+        stack = [*stack, rp]
+        raw_lines = p.read_text(encoding="utf-8-sig").splitlines()
+        out_lines: list[str] = []
+        for raw in raw_lines:
+            s = raw.strip()
+            if not s or s.startswith("#"):
+                out_lines.append(raw)
+                continue
+
+            # import/use/include sugar
+            # - использовать file
+            # - use file
+            # - import file
+            # - import name from dir
+            m = re.match(r"^(?:использовать|use|import)\s+(.+?)\s*$", s, re.I)
+            if not m:
+                out_lines.append(raw)
+                continue
+
+            rest = m.group(1).strip()
+            src_path = None
+
+            m_from = re.match(r"^(.+?)\s+from\s+(.+?)$", rest, re.I)
+            if m_from:
+                name = m_from.group(1).strip().strip('"').strip("'")
+                folder = m_from.group(2).strip().strip('"').strip("'")
+                src_path = (p.parent / folder / name)
+            else:
+                name = rest.strip().strip('"').strip("'")
+                src_path = (p.parent / name)
+
+            if src_path.suffix.lower() != ".mldsl":
+                src_path = src_path.with_suffix(".mldsl")
+            if not src_path.exists():
+                warn(f"import не найден: {src_path}")
+                continue
+
+            out_lines.append(f"# [import] {src_path}")
+            out_lines.extend(load_with_imports(src_path, stack))
+            out_lines.append(f"# [/import] {src_path}")
+        return out_lines
+
     # VS Code/PowerShell часто пишут UTF-8 с BOM; utf-8-sig убирает BOM автоматически.
-    lines = path.read_text(encoding="utf-8-sig").splitlines()
+    lines = load_with_imports(path, [])
     entries: list[dict] = []
 
     in_block = False

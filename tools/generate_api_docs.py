@@ -189,20 +189,22 @@ def main():
     index_lines = ["# MLDSL API", ""]
     index_lines.append("## Quickstart")
     index_lines.append("")
-    index_lines.append("- English: [QUICKSTART](QUICKSTART.md)")
     if has_ru_quickstart:
         index_lines.append("- Русский: [Быстрый старт](QUICKSTART_RU.md)")
+        index_lines.append("- English: [QUICKSTART](QUICKSTART.md)")
     else:
         index_lines.append("- Русский: (not found) — add `docs/QUICKSTART_RU.md` or `out/language_quickstart_ru.md`")
+        index_lines.append("- English: [QUICKSTART](QUICKSTART.md)")
     index_lines.append("")
 
     index_lines.append("## Guides")
     index_lines.append("")
-    index_lines.append("- English: [Guide](MLDSL_GUIDE.md)")
     if has_ru_guide:
         index_lines.append("- Русский: [Гайд](MLDSL_GUIDE_RU.md)")
+        index_lines.append("- English: [Guide](MLDSL_GUIDE.md)")
     else:
         index_lines.append("- Русский: (not found)")
+        index_lines.append("- English: [Guide](MLDSL_GUIDE.md)")
     index_lines.append("")
 
     index_lines.append("## Full API")
