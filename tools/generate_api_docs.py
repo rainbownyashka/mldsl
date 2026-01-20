@@ -157,18 +157,56 @@ This plan is executed by the mod using the existing `/placeadvanced` mechanism.
 
     (out_dir / "MLDSL_GUIDE.md").write_text(guide, encoding="utf-8")
 
+def copy_quickstarts(out_dir: Path) -> list[str]:
+    copied = []
+    out_root = out_dir.parent
+    candidates = [
+        (out_root / "language_quickstart.md", out_dir / "QUICKSTART.md"),
+        (out_root / "language_quickstart_ru.md", out_dir / "QUICKSTART_RU.md"),
+        (out_root / "language_quickstart_rus.md", out_dir / "QUICKSTART_RU.md"),
+        (out_root / "language_quickstart_ru-RU.md", out_dir / "QUICKSTART_RU.md"),
+    ]
+    for src, dst in candidates:
+        if not src.exists():
+            continue
+        dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+        copied.append(dst.name)
+    return sorted(set(copied))
+
 
 def main():
     api = json.loads(API_PATH.read_text(encoding="utf-8"))
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    index_lines = [
-        "# MLDSL API",
-        "",
-        "- `MLDSL_GUIDE.md` -> `MLDSL_GUIDE.md`",
-        "- `ALL_FUNCTIONS.md` -> `ALL_FUNCTIONS.md`",
-        "",
-    ]
+    quickstarts = copy_quickstarts(OUT_DIR)
+    write_mldsl_guide(OUT_DIR)
+
+    has_ru_guide = (OUT_DIR / "MLDSL_GUIDE_RU.md").exists()
+    has_ru_quickstart = "QUICKSTART_RU.md" in quickstarts
+
+    index_lines = ["# MLDSL API", ""]
+    index_lines.append("## Quickstart")
+    index_lines.append("")
+    index_lines.append("- English: `QUICKSTART.md`")
+    if has_ru_quickstart:
+        index_lines.append("- Русский: `QUICKSTART_RU.md`")
+    else:
+        index_lines.append("- Русский: (not found) — add `out/language_quickstart_ru.md` to generate it")
+    index_lines.append("")
+
+    index_lines.append("## Guides")
+    index_lines.append("")
+    index_lines.append("- English: `MLDSL_GUIDE.md`")
+    if has_ru_guide:
+        index_lines.append("- Русский: `MLDSL_GUIDE_RU.md`")
+    else:
+        index_lines.append("- Русский: (not found)")
+    index_lines.append("")
+
+    index_lines.append("## Full API")
+    index_lines.append("")
+    index_lines.append("- `ALL_FUNCTIONS.md`")
+    index_lines.append("")
     all_lines = [
         "# MLDSL API (All Functions)",
         "",
@@ -255,7 +293,6 @@ def main():
 
     (OUT_DIR / "README.md").write_text("\n".join(index_lines) + "\n", encoding="utf-8")
     (OUT_DIR / "ALL_FUNCTIONS.md").write_text("\n".join(all_lines) + "\n", encoding="utf-8")
-    write_mldsl_guide(OUT_DIR)
     print(f"wrote docs to {OUT_DIR}")
 
 
