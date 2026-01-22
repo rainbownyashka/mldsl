@@ -107,6 +107,9 @@ def determine_mode(glass_meta: int, glass_name: str) -> str | None:
         return "NUMBER"
     if glass_meta == 1:
         return "VARIABLE"
+    # Yellow glass pane is used as "item input" marker in many GUIs.
+    if glass_meta == 4:
+        return "ITEM"
     if glass_meta == 5:
         if "местополож" in name_clean:
             return "LOCATION"
@@ -149,17 +152,19 @@ def parse_variant_info(lore: str) -> dict | None:
     options = []
     selected = None
     for line in lines:
-        if "●" in line or "○" in line:
-            if "●" in line:
-                bullet = "●"
+        # Server UIs use ○ / ● bullets, but some exports may corrupt them to '?' / TAB.
+        if ("●" in line) or ("○" in line) or ("?" in line) or ("\t" in line):
+            if ("●" in line) or ("?" in line):
+                bullet = "●" if "●" in line else "?"
                 is_selected = True
             else:
-                bullet = "○"
+                bullet = "○" if "○" in line else "\t"
                 is_selected = False
             text = line.split(bullet, 1)[1].strip()
-            options.append(text)
-            if is_selected and selected is None:
-                selected = len(options) - 1
+            if text:
+                options.append(text)
+                if is_selected and selected is None:
+                    selected = len(options) - 1
     if not options:
         return None
     if selected is None:

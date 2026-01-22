@@ -6,7 +6,7 @@
       "\t$0",
       "}"
     ],
-    "description": "Проверка условия игрока"
+    "description": "Условие игрока"
   },
   "if_game": {
     "prefix": "if_game",
@@ -15,7 +15,7 @@
       "\t$0",
       "}"
     ],
-    "description": "Проверка условия игры"
+    "description": "Условие игры"
   },
   "SelectObject.player.IfPlayer": {
     "prefix": "SelectObject.player.IfPlayer",
@@ -24,7 +24,7 @@
       "\t$0",
       "}"
     ],
-    "description": "Старый синтаксис проверки условий игрока"
+    "description": "Старый синтаксис условия игрока"
   },
   "IfGame": {
     "prefix": "IfGame",
@@ -33,6 +33,13 @@
       "\t$0",
       "}"
     ],
-    "description": "Старый синтаксис проверки условий игры"
+    "description": "Старый синтаксис условия игры"
+  },
+  "item()": {
+    "prefix": "item",
+    "body": [
+      "item(${1:stone}, count=${2:1}, meta=${3:0}, name=\"${4:&aНазвание}\", description=\"${5:строка1\\\\nстрока2}\", nbt=${6:{}})"
+    ],
+    "description": "Предмет для placeadvanced (item(...))"
   }
 }

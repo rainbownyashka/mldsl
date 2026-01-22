@@ -18,9 +18,18 @@ def load_module(path: Path):
     return mod
 
 def read_export_lines(path: Path) -> list[str]:
-    data = path.read_bytes().replace(b"\x00", b"")
-    text = data.decode("utf-8", errors="replace")
-    return text.splitlines()
+    data = path.read_bytes()
+    # Export is sometimes UTF-16 (lots of NUL bytes). Decode properly so §-colors and RU names
+    # stay intact (affects completion + docs).
+    if data.startswith(b"\xff\xfe") or data.startswith(b"\xfe\xff"):
+        text = data.decode("utf-16", errors="replace")
+    else:
+        nul_ratio = (data.count(b"\x00") / max(1, len(data)))
+        if nul_ratio > 0.05:
+            text = data.decode("utf-16-le", errors="replace")
+        else:
+            text = data.decode("utf-8", errors="replace")
+    return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
 def build_action_id(mod, record: dict, aliases: dict) -> str:
     key = mod.build_key(record, aliases)

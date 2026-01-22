@@ -2,7 +2,7 @@
   "name": "mldsl-helper",
   "displayName": "MLDSL Helper",
   "description": "Completion/hover/definition for MLDSL based on generated api_aliases.json",
-  "version": "0.0.10",
+  "version": "0.0.20",
   "publisher": "local",
   "engines": {
     "vscode": "^1.80.0"

@@ -249,6 +249,8 @@ def guess_param_base(arg: dict) -> str:
         return "loc"
     if mode == "array":
         return "arr"
+    if mode == "item":
+        return "item"
     if mode == "any":
         return "value"
     return mode or "arg"
@@ -378,7 +380,10 @@ def main():
         sign1 = strip_colors(signs[0]).strip()
         sign2 = strip_colors(signs[1]).strip()
         gui = strip_colors(action.get("gui", "")).strip()
-        menu = parse_item_display_name(action.get("subitem", ""))
+        # Clickable GUI item name comes from the item display name (subitem), with a fallback to category.
+        # We also prefer this "menu" name for canonical API naming because sign2 is often shortened
+        # ("Правый клик") while the GUI item title is more descriptive ("Игрок кликает правой кнопкой").
+        menu = parse_item_display_name(action.get("subitem") or action.get("category") or "")
         action_id = action.get("id", "")
         module = module_for_sign1(sign1)
         var_operator_funcs = {
@@ -391,17 +396,36 @@ def main():
         if module == "var" and sign2 in var_operator_funcs:
             func = var_operator_funcs[sign2]
         else:
-            func = snake(sign2 or gui)
+            base = menu or sign2 or gui
+            func = snake(base)
+        legacy_func = snake(sign2 or gui)
 
         api.setdefault(module, {})
         canonical = translations.get(action_id) or translations.get(f"{module}.{func}") or {}
         name_override = canonical.get("name")
         alias_override = canonical.get("aliases") or []
+        reserved_names = {
+            "player",
+            "event",
+            "game",
+            "var",
+            "array",
+            "misc",
+            "if_player",
+            "if_game",
+            "if_value",
+        }
+        if isinstance(name_override, str) and name_override.strip().lower() in reserved_names:
+            name_override = None
         final_name = name_override or func
         if final_name in api[module]:
             collisions.setdefault(f"{module}.{final_name}", 0)
             collisions[f"{module}.{final_name}"] += 1
             final_name = f"{final_name}_{collisions[f'{module}.{final_name}']}"
+        # Include aliases from both:
+        # - sign2/gui (what player sees on sign / in docs)
+        # - menu (what player clicks in the GUI item list)
+        menu_aliases = {englishish_alias(menu), rus_ident(menu)}
         api[module][final_name] = {
             "id": action.get("id"),
             "sign1": sign1,
@@ -412,9 +436,11 @@ def main():
                 {
                     final_name,
                     *alias_override,
+                    legacy_func,
                     englishish_alias(sign2 or gui),
                     rus_ident(sign2 or gui),
                     rus_ident(gui),
+                    *[a for a in menu_aliases if a],
                 }
             ),
             "description": extract_description(action),

@@ -9,6 +9,62 @@ ALIASES_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\src\assets\Aliases.js
 ALLACTIONS_PATH = Path(r"C:\Users\ASUS\Documents\allactions.txt")
 MAX_CMD_LEN = 240
 
+# Internal stacks for function args/returns. Names must be rare to avoid clashing with user variables in the world.
+ARGS_STACK_NAME = "__mldsl_args"
+RET_STACK_NAME = "__mldsl_ret"
+TMP_VAR_PREFIX = "__mldsl_tmp"
+
+# Stack top index. Your server's array GUI actions are 1-based.
+STACK_TOP_INDEX = 1
+
+
+def parse_item_display_name(raw: str) -> str:
+    if not raw:
+        return ""
+    s = strip_colors(raw)
+    if "]" in s:
+        s = s.split("]", 1)[1]
+    s = s.strip()
+    if "|" in s:
+        s = s.split("|", 1)[0].strip()
+    return s
+
+
+def load_known_events() -> dict:
+    """
+    Returns: norm(menu|sign2) -> (block, menuName, expectedSign2)
+    - menuName: clickable GUI item title
+    - expectedSign2: sign text used for skip-check
+    """
+    p = API_PATH.parent / "actions_catalog.json"
+    if not p.exists():
+        return {}
+    try:
+        catalog = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(catalog, list):
+        return {}
+
+    out = {}
+    for rec in catalog:
+        if not isinstance(rec, dict):
+            continue
+        signs = rec.get("signs") or ["", "", "", ""]
+        sign1 = strip_colors(signs[0]).strip()
+        sign2 = strip_colors(signs[1]).strip()
+        if sign1 not in ("Событие игрока", "Событие мира"):
+            continue
+        block = "diamond_block" if sign1 == "Событие игрока" else "gold_block"
+        menu = parse_item_display_name(rec.get("subitem") or rec.get("category") or "") or sign2
+        if not menu:
+            continue
+        payload = (block, menu, sign2 or menu)
+        out.setdefault(norm_key(menu), payload)
+        if sign2:
+            out.setdefault(norm_key(sign2), payload)
+    return out
+
 
 def load_api():
     return json.loads(API_PATH.read_text(encoding="utf-8"))
@@ -109,11 +165,29 @@ def find_action(api: dict, module: str, func: str):
         "player": "player",
         "событие": "event",
         "event": "event",
+        "select": "misc",
+        "выборка": "misc",
     }
+    orig_module = module
     module = module_aliases.get(module, module)
     mod = api.get(module)
     if not mod:
         return None, None
+    if orig_module in ("select", "выборка"):
+        key = re.sub(r"[_\\s]+", "", (func or "").strip().lower())
+        select_sh = {
+            "allplayers": "vse_igroki",
+            "allplayer": "vse_igroki",
+            "allmobs": "vse_moby",
+            "allentities": "vse_suschnosti",
+            "randomplayer": "sluchaynyy_igrok",
+            "randommob": "sluchaynyy_mob",
+            "randentity": "sluchaynaya_suschnost",
+            "randomentity": "sluchaynaya_suschnost",
+            "defaultplayer": "igrok_po_umolchaniyu",
+            "defaultentity": "suschnost_po_umolchaniyu",
+        }
+        func = select_sh.get(key, func)
     # direct name
     if func in mod:
         return func, mod[func]
@@ -128,7 +202,11 @@ def split_args(arg_str: str) -> list[str]:
     parts: list[str] = []
     buf = ""
     in_str = False
+    str_ch = ""
     esc = False
+    paren = 0
+    brace = 0
+    bracket = 0
     for ch in arg_str:
         if esc:
             buf += ch
@@ -138,11 +216,30 @@ def split_args(arg_str: str) -> list[str]:
             esc = True
             buf += ch
             continue
-        if ch == '"':
-            in_str = not in_str
+        if ch in ('"', "'"):
+            if in_str and ch == str_ch:
+                in_str = False
+                str_ch = ""
+            elif not in_str:
+                in_str = True
+                str_ch = ch
             buf += ch
             continue
-        if ch == "," and not in_str:
+        if not in_str:
+            if ch == "(":
+                paren += 1
+            elif ch == ")":
+                paren = max(0, paren - 1)
+            elif ch == "{":
+                brace += 1
+            elif ch == "}":
+                brace = max(0, brace - 1)
+            elif ch == "[":
+                bracket += 1
+            elif ch == "]":
+                bracket = max(0, bracket - 1)
+
+        if ch == "," and not in_str and paren == 0 and brace == 0 and bracket == 0:
             if buf.strip():
                 parts.append(buf.strip())
             buf = ""
@@ -158,9 +255,55 @@ def parse_call_args(arg_str: str):
     pos: list[str] = []
     if not arg_str.strip():
         return kv, pos
+
+    def split_top_level_eq(token: str) -> tuple[str, str] | None:
+        s = token or ""
+        in_str = False
+        str_ch = ""
+        esc = False
+        paren = brace = bracket = 0
+        for i, ch in enumerate(s):
+            if esc:
+                esc = False
+                continue
+            if ch == "\\":
+                esc = True
+                continue
+            if ch in ('"', "'"):
+                if in_str and ch == str_ch:
+                    in_str = False
+                    str_ch = ""
+                elif not in_str:
+                    in_str = True
+                    str_ch = ch
+                continue
+            if in_str:
+                continue
+            if ch == "(":
+                paren += 1
+            elif ch == ")":
+                paren = max(0, paren - 1)
+            elif ch == "{":
+                brace += 1
+            elif ch == "}":
+                brace = max(0, brace - 1)
+            elif ch == "[":
+                bracket += 1
+            elif ch == "]":
+                bracket = max(0, bracket - 1)
+            elif ch == "=" and paren == 0 and brace == 0 and bracket == 0:
+                return s[:i], s[i + 1 :]
+        return None
+
     for p in split_args(arg_str):
-        if "=" in p:
-            k, v = p.split("=", 1)
+        # If the whole token is quoted, it's always positional (it may contain '=' inside).
+        ps = p.strip()
+        if len(ps) >= 2 and ((ps.startswith('"') and ps.endswith('"')) or (ps.startswith("'") and ps.endswith("'"))):
+            pos.append(ps[1:-1])
+            continue
+        eq = split_top_level_eq(p)
+        if eq is not None:
+            k, v = eq
             v = v.strip()
             if len(v) >= 2 and v.startswith('"') and v.endswith('"'):
                 v = v[1:-1]
@@ -176,9 +319,31 @@ def wrap_value(mode: str | None, value: str) -> str:
     v = (value or "").strip()
     if not v:
         return v
-    # If user already passed a function-like value (text(...), var(...), num(...), etc) keep it.
-    if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*\(.*\)$", v):
-        return v
+    # Keep only known wrapper forms; everything else that looks like a call is NOT executable on server.
+    m_wrap = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(.*\)\s*$", v)
+    if m_wrap:
+        head = (m_wrap.group(1) or "").lower()
+        allowed = {
+            "text",
+            "num",
+            "var",
+            "var_save",
+            "arr",
+            "arr_save",
+            "array",
+            "loc",
+            "apple",
+            "item",
+        }
+        if head in allowed:
+            return v
+    # Prevent accidental "nested calls" being treated as plain text/number/etc.
+    # If user really wants the literal text `foo()` they should quote it.
+    if re.match(r"^[\w\u0400-\u04FF]+(?:\.[\w\u0400-\u04FF]+)?\s*\(.*\)\s*$", v):
+        raise ValueError(
+            f"Вложенный вызов `{v}` в аргументе не выполняется на сервере автоматически. "
+            "Сделай так: tmp = foo(); и используй %var(tmp)% в тексте, или передай строку в кавычках."
+        )
     m = (mode or "").upper()
     if m == "TEXT":
         return f"text({v})"
@@ -190,6 +355,8 @@ def wrap_value(mode: str | None, value: str) -> str:
         return f"loc({v})"
     if m == "ARRAY":
         return f"arr({v})"
+    if m == "ITEM":
+        return f"item({v})"
     return v
 
 
@@ -198,15 +365,22 @@ def wrap_value(mode: str | None, value: str) -> str:
 # - keep calls/modules stricter for now (no % in module/function names)
 NAME_RE = r"[%%\w\u0400-\u04FF]+"
 CALL_RE = re.compile(r"^\s*([\w\u0400-\u04FF]+)\.([\w\u0400-\u04FF]+)\s*\((.*)\)\s*;?\s*$")
-EVENT_RE = re.compile(r"^\s*event\s*\(\s*([\w\u0400-\u04FF]+)\s*\)\s*\{\s*$", re.I)
+# event(<name>) { ... }
+# - allow spaces in names (e.g. "Событие чата")
+# - allow quotes: event("Правый клик")
+EVENT_RE = re.compile(r'^\s*event\s*\(\s*(?:"([^"]+)"|([^)]+?))\s*\)\s*\{\s*$', re.I)
 BARE_CALL_RE = re.compile(r"^\s*([\w\u0400-\u04FF]+)\s*\((.*)\)\s*;?\s*$")
-FUNC_RE = re.compile(rf"^\s*(?:func|function|def|функция)\s*(?:\(\s*)?([\w\u0400-\u04FF]+)(?:\s*\))?\s*\{{\s*$", re.I)
+FUNC_RE = re.compile(
+    rf"^\s*(?:func|function|def|функция)\s*(?:\(\s*)?([\w\u0400-\u04FF]+)(?:\s*\))?(?:\s*\(\s*([^\)]*)\s*\))?\s*\{{\s*$",
+    re.I,
+)
 LOOP_RE = re.compile(rf"^\s*(?:loop|цикл)\s+([\w\u0400-\u04FF]+)(?:\s+every)?\s+(\d+)\s*\{{\s*$", re.I)
 ASSIGN_RE = re.compile(
     rf"^\s*(?:(save)\s+)?({NAME_RE})\s*(?:~\s*)?(?:(\*)\s*)?=\s*(.+?)\s*;?\s*$",
     re.I,
 )
 SAVE_SHORTHAND_RE = re.compile(rf"^\s*({NAME_RE})\s*~\s*(.+?)\s*;?\s*$", re.I)
+IMPORT_RE = re.compile(r"^\s*(?:import|use|использовать)\s+([^\s;#]+)\s*;?\s*$", re.I)
 
 IFPLAYER_RE = re.compile(r"^\s*if_?player\.([\w\u0400-\u04FF]+)(?:\s*\((.*)\))?\s*\{\s*$", re.I)
 SELECTOBJECT_IFPLAYER_RE = re.compile(r"^\s*SelectObject\.player\.IfPlayer\.([\w\u0400-\u04FF]+)\s*\{\s*$", re.I)
@@ -215,6 +389,10 @@ IFGAME_OLD_RE = re.compile(r"^\s*IfGame\.([\w\u0400-\u04FF]+)\s*\{\s*$", re.I)
 IF_RE = re.compile(r"^\s*if\s+(.+?)\s*\{\s*$", re.I)
 IFTEXT_RE = re.compile(r"^\s*iftext\s+(.+?)\s*\{\s*$", re.I)
 IFEXISTS_RE = re.compile(rf"^\s*ifexists\s*(?:\(\s*({NAME_RE})\s*\)|\s+({NAME_RE}))\s*\{{\s*$", re.I)
+SELECT_RE = re.compile(
+    r"^\s*select\.([\w\u0400-\u04FF]+(?:\.[\w\u0400-\u04FF]+)*)\s*(?:\(\s*(.*?)\s*\))?\s*(\{)?\s*$",
+    re.I,
+)
 
 
 def spec_menu_name(spec: dict) -> str:
@@ -537,9 +715,49 @@ def compile_line(api: dict, line: str):
         raise ValueError(f"Unknown action: {module}.{func}")
 
     kv, pos = parse_call_args(arg_str)
-    # map params -> slot(N)=...
+    # Special-case: some actions use a plain chest without any glass "arg markers".
+    # For such actions, we still want to support passing items via slot(N)=item(...)
+    # so /placeadvanced can fill the chest.
+    def _wrap_item_token(tok: str) -> str:
+        s = (tok or "").strip()
+        if not s:
+            return s
+        if re.match(r"^item\s*\(.*\)\s*$", s, re.I):
+            return s
+        # allow raw item ids like stone / minecraft:stone / "stone"
+        if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
+            s = s[1:-1]
+        return f"item({s})"
+
     pieces = []
     params = spec.get("params") or []
+
+    # Heuristic: "Выдать предметы" takes items from a chest, but the GUI has no marker glass.
+    # Allow: player.выдать_предметы(item(stone), количество=3) -> slot(0)=item(stone,count=3)
+    if not params:
+        s1 = strip_colors(spec.get("sign1", "")).strip().lower()
+        s2 = strip_colors(spec.get("sign2", "")).strip().lower()
+        if s1 == "действие игрока" and s2 == "выдать предметы":
+            count_kw = kv.get("количество") or kv.get("count") or kv.get("amount")
+            items = []
+            # Positional tokens are treated as items.
+            for t in pos or []:
+                items.append(_wrap_item_token(t))
+            # Also allow explicit named parameter.
+            for k in ("item", "items", "предмет", "предметы"):
+                if k in kv and kv[k]:
+                    items.append(_wrap_item_token(kv[k]))
+            if count_kw is not None:
+                raise ValueError(
+                    "Выдать предметы: параметр `количество` больше не поддерживается. "
+                    "Указывай количество внутри `item(...)`, например: item(stone, count=3)."
+                )
+            if items:
+                for idx, it in enumerate(items):
+                    if not it:
+                        continue
+                    pieces.append(f"slot({idx})={it}")
+
     # positional args fill params in order
     if pos:
         for idx, raw in enumerate(pos):
@@ -556,23 +774,81 @@ def compile_line(api: dict, line: str):
         val = wrap_value(p.get("mode"), kv[name])
         pieces.append(f"slot({p['slot']})={val}")
 
+    def _unquote_preserve_spaces(v: str) -> str:
+        s = "" if v is None else str(v)
+        s = s.strip()
+        if len(s) >= 2 and ((s[0] == '"' and s[-1] == '"') or (s[0] == "'" and s[-1] == "'")):
+            return s[1:-1]
+        return s
+
+    def _norm_enum_value(v: str) -> str:
+        # ignore spaces/punctuation/case for matching; keep RU letters
+        s = strip_colors(v or "").lower()
+        s = re.sub(r"[\s_\\-]+", "", s)
+        s = re.sub(r"[\"'`]+", "", s)
+        return s
+
+    def _resolve_separator_shorthand(raw_val: str, opts: dict[str, int]) -> int | None:
+        # Common server enums: no separator / space / newline.
+        rv = raw_val
+        if rv in ("", None):
+            # Prefer "Без разделения"
+            for k, c in opts.items():
+                lk = strip_colors(k).lower()
+                if "без" in lk and "раздел" in lk:
+                    return c
+            return 0 if opts else None
+        if rv == " ":
+            for k, c in opts.items():
+                lk = strip_colors(k).lower()
+                if "проб" in lk:
+                    return c
+        if rv in ("\\n", "\n", "newline", "line", "new_line"):
+            for k, c in opts.items():
+                lk = strip_colors(k).lower()
+                if ("нов" in lk and "строк" in lk) or "newline" in lk:
+                    return c
+        return None
+
     # enum sugar: if key matches enum name, convert to clicks(slot,n)
     for e in spec.get("enums") or []:
         ename = e.get("name")
         if not ename or ename not in kv:
             continue
-        raw = kv[ename].strip().strip('"')
+        raw_token = kv[ename]
+        raw_val = _unquote_preserve_spaces(raw_token)
         opts = e.get("options") or {}
-        if raw in opts:
-            clicks = opts[raw]
-        else:
+
+        clicks = None
+        if isinstance(opts, dict) and opts:
+            # exact
+            if raw_val in opts:
+                clicks = opts[raw_val]
+            else:
+                # separator shorthands: "", " ", "\n"
+                clicks = _resolve_separator_shorthand(raw_val, opts)
+                if clicks is None:
+                    # fuzzy (ignore spaces/case)
+                    norm_map = {_norm_enum_value(k): v for k, v in opts.items()}
+                    clicks = norm_map.get(_norm_enum_value(raw_val))
+        if clicks is None:
             # allow numeric
-            clicks = int(raw)
-        pieces.append(f"clicks({e['slot']},{clicks})=0")
+            try:
+                clicks = int(str(raw_val).strip())
+            except Exception:
+                examples = ", ".join(list(opts.keys())[:8]) if isinstance(opts, dict) else ""
+                more = "..." if isinstance(opts, dict) and len(opts) > 8 else ""
+                raise ValueError(
+                    f"enum `{ename}`: неизвестное значение `{raw_val}`. Варианты: {examples}{more}"
+                )
+
+        # IMPORTANT: server already applies 1 click when you put the item; so "clicks(...,0)" is not safe.
+        if int(clicks) > 0:
+            pieces.append(f"clicks({e['slot']},{int(clicks)})=0")
 
     return pieces, spec
 
-def compile_builtin(api: dict, line: str):
+def compile_builtin(api: dict, line: str, func_sigs: dict[str, list[str]] | None = None, debug_stacks: bool = False):
     m = BARE_CALL_RE.match(line)
     if not m or "." in (m.group(1) or ""):
         # assignment sugar doesn't look like a call
@@ -580,8 +856,12 @@ def compile_builtin(api: dict, line: str):
         if m_short:
             name = (m_short.group(1) or "").strip()
             rhs = (m_short.group(2) or "").strip()
-            # Convert to normal assignment form handled below.
-            line = f"save {name} = {rhs}"
+            # Don't treat `name~ = ...` as shorthand; that's regular assignment with "~" marker.
+            if rhs.lstrip().startswith("="):
+                m_short = None
+            else:
+                # Convert to normal assignment form handled below.
+                line = f"save {name} = {rhs}"
 
         m_assign = ASSIGN_RE.match(line)
         if not m_assign:
@@ -601,6 +881,194 @@ def compile_builtin(api: dict, line: str):
 
         if not name or not rhs:
             return None
+
+        def wrap_var_target(var_name: str, save_flag: bool) -> str:
+            return f"var_save({var_name})" if save_flag else f"var({var_name})"
+
+        def wrap_array_target(arr_name: str, save_flag: bool) -> str:
+            return f"arr_save({arr_name})" if save_flag else f"arr({arr_name})"
+
+        def wrap_any_value(token: str) -> str:
+            s = (token or "").strip()
+            if not s:
+                return "text()"
+            # keep explicit wrappers
+            if re.match(r"^(?:text|num|var|var_save|arr|arr_save|loc|item)\s*\(.*\)\s*$", s, re.I):
+                return s
+            # quoted string
+            if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
+                inner = s[1:-1]
+                return f"text({inner})"
+            # numeric literal / expr (simple)
+            vnum = safe_eval_number_expr(s)
+            if vnum is not None:
+                if abs(vnum - int(vnum)) < 1e-9:
+                    return f"num({int(vnum)})"
+                return f"num({vnum})"
+            # fallback: treat as variable reference
+            if re.match(rf"^{NAME_RE}$", s):
+                return f"var({s})"
+            return s
+
+        def compile_push_args_stack(func_name: str, args: list[str]) -> list[tuple[list[str], dict]]:
+            """
+            Pushes args onto global mldsl args stack so nested calls don't overwrite each other.
+            Layout: [argc, arg1, arg2, ...] at the front (index 1..).
+            We implement by inserting argN..arg1 at index=1, then inserting argc at index=1.
+            Returns synthetic actions as list of (pieces, spec).
+            """
+            if func_sigs and func_name in func_sigs:
+                expected = len(func_sigs.get(func_name) or [])
+                if expected != len(args):
+                    raise ValueError(f"{func_name}(): ожидалось аргументов {expected}, получено {len(args)}")
+
+            out = []
+            # We treat the args stack as a stack with top at STACK_TOP_INDEX.
+            # Insert args in reverse order so arg1 becomes the top element.
+            for raw_arg in reversed(args):
+                val = wrap_any_value(raw_arg)
+                res = compile_line(
+                    api,
+                    f"array.vstavit_v_massiv(arr=arr({ARGS_STACK_NAME}), number=num({STACK_TOP_INDEX}), value={val})",
+                )
+                if not res:
+                    raise ValueError("args: не найдено действие 'Вставить в массив'")
+                out.append(res)
+            if debug_stacks:
+                res = compile_line(api, f"array.get_array_2(arr=arr({ARGS_STACK_NAME}), var=var({TMP_VAR_PREFIX}argslen))")
+                if res:
+                    out.append(res)
+                res = compile_line(api, f'player.message("DBG args_len=%var({TMP_VAR_PREFIX}argslen)%")')
+                if res:
+                    out.append(res)
+            return out
+
+        # Array literal sugar:
+        #   arr~ = [1, 2, "hello"]
+        # Compiles into array.ochistit_sozdat_massiv(...) + array.add_array(...) in chunks.
+        if rhs.startswith("[") and rhs.endswith("]"):
+            inner = rhs[1:-1].strip()
+            elems = split_args(inner) if inner else []
+            wrapped = [wrap_any_value(e) for e in elems]
+            out = []
+
+            first_chunk = wrapped[:9]
+            parts = [f"arr={wrap_array_target(name, saved)}"]
+            for idx, val in enumerate(first_chunk, start=1):
+                key = "value" if idx == 1 else f"value{idx}"
+                parts.append(f"{key}={val}")
+
+            res = compile_line(api, f"array.ochistit_sozdat_massiv({', '.join(parts)})")
+            if not res:
+                res = compile_line(api, f"array.sozdat_massiv({', '.join(parts)})")
+            if not res:
+                raise ValueError("array literal: не найдено действие 'Очистить/Создать массив'")
+            out.append(res)
+
+            rest = wrapped[9:]
+            for i in range(0, len(rest), 9):
+                chunk = rest[i:i + 9]
+                parts = [f"arr={wrap_array_target(name, saved)}"]
+                for idx, val in enumerate(chunk, start=1):
+                    key = "value" if idx == 1 else f"value{idx}"
+                    parts.append(f"{key}={val}")
+                res = compile_line(api, f"array.add_array({', '.join(parts)})")
+                if not res:
+                    raise ValueError("array literal: не найдено действие 'Добавить в конец массива'")
+                out.append(res)
+            return out
+
+        # Slice sugar for text: dst = src[3:5]
+        m_slice = re.match(rf"^({NAME_RE}|\".*?\"|'.*?')\[(\d+)\s*:\s*(\d+)\]$", rhs)
+        if m_slice:
+            src = m_slice.group(1)
+            start = int(m_slice.group(2))
+            end = int(m_slice.group(3))
+            if (src.startswith('"') and src.endswith('"')) or (src.startswith("'") and src.endswith("'")):
+                src_text = f"text({src[1:-1]})"
+            else:
+                src_text = f"text(%var({src})%)"
+            synthetic = f"var.text(var={wrap_var_target(name, saved)}, text={src_text}, num=num({start}), num2=num({end}))"
+            res = compile_line(api, synthetic)
+            if not res:
+                raise ValueError("slice: не найдено действие 'Обрезать текст'")
+            return [res]
+
+        # Index sugar for array element: dst = arrName[2]
+        m_idx = re.match(rf"^({NAME_RE})\[(\d+)\]$", rhs)
+        if m_idx:
+            src_arr = m_idx.group(1)
+            idx = int(m_idx.group(2))
+            synthetic = f"array.get_array(arr=arr({src_arr}), number=num({idx}), var={wrap_var_target(name, saved)})"
+            res = compile_line(api, synthetic)
+            if not res:
+                raise ValueError("array index: не найдено действие 'Получить элемент массива'")
+            return [res]
+
+        # Function-return sugar (sync only):
+        #   x = foo()
+        # Compiles:
+        #   call(foo)
+        #   x = pop(mldsl ret stack)
+        m_call_expr = re.match(rf"^(?:([\w\u0400-\u04FF]+)\.)?([\w\u0400-\u04FF]+)\s*\((.*)\)\s*$", rhs)
+        if m_call_expr:
+            fn = (m_call_expr.group(2) or "").strip()
+            inside = (m_call_expr.group(3) or "").strip()
+            reserved = {
+                "event",
+                "func",
+                "function",
+                "def",
+                "loop",
+                "цикл",
+                "функция",
+                "if",
+                "iftext",
+                "ifexists",
+            }
+            if fn and fn not in reserved:
+                # positional args only for now
+                if inside:
+                    args = split_args(inside)
+                else:
+                    args = []
+                out = []
+                # push args (if any)
+                if args:
+                    out.extend(compile_push_args_stack(fn, args))
+                # 1) call(func) (sync)
+                spec_call = api.get("game", {}).get("call_function") or api.get("game", {}).get("вызвать_функцию")
+                if not spec_call:
+                    raise ValueError("Function call sugar failed: no call_function action in api")
+                out.append(([f"slot(13)=text({fn})"], spec_call))
+                if debug_stacks:
+                    res = compile_line(api, f"array.get_array_2(arr=arr({RET_STACK_NAME}), var=var({TMP_VAR_PREFIX}retlen_before))")
+                    if res:
+                        out.append(res)
+                    res = compile_line(api, f'player.message("DBG ret_len_before=%var({TMP_VAR_PREFIX}retlen_before)%")')
+                    if res:
+                        out.append(res)
+                # 2) read ret from __ret[top] into target var
+                target_var = wrap_var_target(name, saved)
+                res = compile_line(
+                    api, f"array.get_array(arr=arr({RET_STACK_NAME}), number=num({STACK_TOP_INDEX}), var={target_var})"
+                )
+                if not res:
+                    raise ValueError("return/pop: не найдено действие 'Получить элемент массива'")
+                out.append(res)
+                # 3) pop __ret[top]
+                res = compile_line(api, f"array.remove_array(arr=arr({RET_STACK_NAME}), number=num({STACK_TOP_INDEX}))")
+                if not res:
+                    raise ValueError("return/pop: не найдено действие 'Удалить элемент массива'")
+                out.append(res)
+                if debug_stacks:
+                    res = compile_line(api, f"array.get_array_2(arr=arr({RET_STACK_NAME}), var=var({TMP_VAR_PREFIX}retlen_after))")
+                    if res:
+                        out.append(res)
+                    res = compile_line(api, f'player.message("DBG ret_len_after=%var({TMP_VAR_PREFIX}retlen_after)%")')
+                    if res:
+                        out.append(res)
+                return out
 
         # Determine RHS
         rhs_wrapped = rhs
@@ -628,7 +1096,7 @@ def compile_builtin(api: dict, line: str):
                 if not is_func_like:
                     rhs_wrapped = f"text({rhs_wrapped})"
 
-        var_token = f"var_save({name})" if saved else f"var({name})"
+        var_token = wrap_var_target(name, saved)
 
         # Formula compilation: if RHS contains operators or identifiers, compile into numeric actions.
         rhs_expr = rhs
@@ -759,6 +1227,14 @@ def compile_builtin(api: dict, line: str):
         if "async" in kv:
             async_flag = parse_bool(kv.pop("async"))
 
+        if kv:
+            raise ValueError(f"{name}(): пока поддерживаются только позиционные аргументы (без key=value)")
+
+        # positional args: push stack frame, then call
+        out = []
+        if pos:
+            out.extend(compile_push_args_stack(name, pos))
+
         pieces = [f"slot(13)=text({name})"]
         if async_flag:
             pieces.append("clicks(16,1)=0")
@@ -768,7 +1244,16 @@ def compile_builtin(api: dict, line: str):
             spec = api.get("game", {}).get("вызвать_функцию")
         if not spec:
             raise ValueError("Function call sugar failed: no call_function action in api")
-        return [(pieces, spec)]
+        out.append((pieces, spec))
+
+        # As a statement-call, discard one return value to keep __ret clean.
+        # (Every func gets an implicit return if it doesn't have explicit return.)
+        if not async_flag:
+            res = compile_line(api, f"array.remove_array(arr=arr({RET_STACK_NAME}), number=num({STACK_TOP_INDEX}))")
+            if not res:
+                raise ValueError("return/discard: не найдено действие 'Удалить элемент массива'")
+            out.append(res)
+        return out
 
     return None
 
@@ -923,8 +1408,203 @@ def compile_entries(path: Path) -> list[dict]:
     api = load_api()
     sign1_aliases = load_sign1_aliases()
     blocks = load_allactions_map()
-    # VS Code/PowerShell часто пишут UTF-8 с BOM; utf-8-sig убирает BOM автоматически.
-    lines = path.read_text(encoding="utf-8-sig").splitlines()
+    known_events = load_known_events()
+    # Debug-only: can be wired to CLI later.
+    debug_stacks = False
+
+    def norm_ident(s: str) -> str:
+        s = strip_colors(s or "").lower()
+        s = re.sub(r"[\s_\\-]+", "", s)
+        return s
+
+    def compile_action_tuple(module: str, func: str, arg_str: str = "") -> tuple[str, str, str]:
+        res = compile_line(api, f"{module}.{func}({arg_str})")
+        if not res:
+            raise ValueError(f"Unknown action: {module}.{func}")
+        pieces, spec = res
+        sign1 = strip_colors(spec.get("sign1", "")).strip()
+        sign2 = spec_menu_name(spec)
+        menu = strip_colors(spec.get("menu", "")).strip()
+        sign1_norm = norm_key(sign1)
+        if sign1_norm in sign1_aliases:
+            sign1_norm = norm_key(sign1_aliases[sign1_norm])
+        block = blocks.get(sign1_norm)
+        if not block:
+            raise ValueError(
+                f"Unknown block for sign1='{sign1}' (norm='{sign1_norm}'). Add to allactions.txt or Aliases.json"
+            )
+        block_tok = block.replace("minecraft:", "")
+        expected_sign2 = strip_colors(spec.get("sign2", "")).strip() or strip_colors(spec.get("gui", "")).strip()
+        StringName = sign2
+        if expected_sign2:
+            StringName = f"{(menu or sign2)}||{expected_sign2}"
+        return (block_tok, StringName, ",".join(pieces) if pieces else "no"), spec
+
+    # Selection (Выбрать объект) scoping:
+    # `select.xxx { ... }` restores the previous selection on `}`.
+    DEFAULT_SELECT_PLAYER, _ = compile_action_tuple("misc", "vybrat_igroka_po_umolchaniyu")
+    DEFAULT_SELECT_ENTITY, _ = compile_action_tuple("misc", "vybrat_suschnost_po_umolchaniyu")
+    current_select: tuple[str, str, str] | None = None
+    select_stack: list[tuple[str, str, str] | None] = []
+    select_default_stack: list[tuple[str, str, str]] = []
+
+    def select_domain(spec: dict) -> str:
+        blob = " ".join(
+            [
+                strip_colors(spec.get("sign2", "")).lower(),
+                strip_colors(spec.get("gui", "")).lower(),
+                strip_colors(spec.get("menu", "")).lower(),
+            ]
+        )
+        if "игрок" in blob:
+            return "player"
+        if "моб" in blob or "сущност" in blob:
+            return "entity"
+        return "player"
+
+    def find_select_action(chain: str) -> tuple[str, dict]:
+        mod = api.get("misc") or {}
+        parts = [p for p in (chain or "").split(".") if p]
+        leaf = parts[-1] if parts else ""
+        if not leaf:
+            raise ValueError("select: empty selector")
+
+        leaf_key = norm_ident(leaf)
+        leaf_syn = {
+            # common user wording -> in-game menu wording
+            "приседает": "kradetsya",
+            "нашифте": "kradetsya",
+            "шифт": "kradetsya",
+            "sneak": "kradetsya",
+            "sneaking": "kradetsya",
+        }
+        leaf_key = leaf_syn.get(leaf_key, leaf_key)
+        leaf_sh = {
+            "allplayers": "vse_igroki",
+            "allplayer": "vse_igroki",
+            "allmobs": "vse_moby",
+            "allentities": "vse_suschnosti",
+            "randomplayer": "sluchaynyy_igrok",
+            "randommob": "sluchaynyy_mob",
+            "randentity": "sluchaynaya_suschnost",
+            "randomentity": "sluchaynaya_suschnost",
+            "defaultplayer": "igrok_po_umolchaniyu",
+            "defaultentity": "suschnost_po_umolchaniyu",
+        }
+        leaf_mapped = leaf_sh.get(leaf_key, leaf_key)
+
+        select_cands: list[tuple[str, dict]] = []
+        for canon, spec in mod.items():
+            if not isinstance(spec, dict):
+                continue
+            s1 = strip_colors(spec.get("sign1", "")).strip()
+            s1n = norm_key(s1)
+            if s1n in sign1_aliases:
+                s1n = norm_key(sign1_aliases[s1n])
+            if s1n != norm_key("Выбрать объект"):
+                continue
+            select_cands.append((canon, spec))
+
+        target = norm_ident(leaf_mapped)
+        hits: list[tuple[str, dict]] = []
+        for canon, spec in select_cands:
+            keys = []
+            keys.append(canon)
+            keys.extend(spec.get("aliases") or [])
+            keys.extend([spec.get("menu", ""), spec.get("gui", ""), spec.get("sign2", "")])
+            if any(norm_ident(str(k)) == target for k in keys if k):
+                hits.append((canon, spec))
+
+        if not hits:
+            raise ValueError(f"select: неизвестный селектор `{leaf}` (chain={chain})")
+
+        if len(hits) == 1:
+            return hits[0]
+
+        def _has_hint(parts_list: list[str], needles: tuple[str, ...]) -> bool:
+            for p in parts_list:
+                np = norm_ident(p)
+                for n in needles:
+                    if n in np:
+                        return True
+            return False
+
+        want_player = _has_hint(parts[:-1], ("player", "игрок"))
+        want_entity = _has_hint(parts[:-1], ("entity", "mob", "существо", "сущность", "моб"))
+        if want_player or want_entity:
+            filtered = []
+            for canon, spec in hits:
+                dom = select_domain(spec)
+                if want_player and dom == "player":
+                    filtered.append((canon, spec))
+                elif want_entity and dom == "entity":
+                    filtered.append((canon, spec))
+            if len(filtered) == 1:
+                return filtered[0]
+            if filtered:
+                hits = filtered
+
+        opts = ", ".join([f"{c}:{strip_colors(s.get('menu',''))}" for c, s in hits[:8]])
+        more = "..." if len(hits) > 8 else ""
+        raise ValueError(f"select: неоднозначно `{leaf}`. Варианты: {opts}{more}")
+
+    def resolve_import_path(base: Path, raw: str) -> Path:
+        rel = raw.replace("\\", "/")
+        if not rel.lower().endswith(".mldsl"):
+            rel += ".mldsl"
+        return (base.parent / rel).resolve()
+
+    def load_with_imports(entry: Path) -> tuple[list[str], set[str]]:
+        """
+        Loads file and inlines `import/use/использовать <path>` directives.
+        Returns: (lines, namespaces) where namespaces are imported module stems (for optional `ns.` stripping).
+        """
+        visited: set[Path] = set()
+        namespaces: set[str] = set()
+        out: list[str] = []
+
+        def rec(p: Path):
+            rp = p.resolve()
+            if rp in visited:
+                return
+            visited.add(rp)
+            if not rp.exists():
+                raise ValueError(f"import: файл не найден: {rp}")
+            for raw in rp.read_text(encoding="utf-8-sig").splitlines():
+                m = IMPORT_RE.match(raw.strip())
+                if m:
+                    spec = m.group(1).strip().strip("\"'")
+                    namespaces.add(Path(spec).stem)
+                    rec(resolve_import_path(rp, spec))
+                else:
+                    out.append(raw)
+
+        rec(entry)
+        return out, namespaces
+
+    lines, imported_namespaces = load_with_imports(path)
+
+    # Collect function signatures (name -> param list) in advance so calls can be validated
+    # even if the function is declared later in the file.
+    func_sigs: dict[str, list[str]] = {}
+    for raw in lines:
+        m = FUNC_RE.match((raw or "").strip())
+        if not m:
+            continue
+        fname = (m.group(1) or "").strip()
+        if not fname:
+            continue
+        params_raw = (m.group(2) or "").strip()
+        params = []
+        if params_raw:
+            for part in split_args(params_raw):
+                pn = (part or "").strip()
+                if not pn:
+                    continue
+                if not re.match(rf"^{NAME_RE}$", pn):
+                    raise ValueError(f"func {fname}(): недопустимое имя параметра: {pn}")
+                params.append(pn)
+        func_sigs[fname] = params
     entries: list[dict] = []
 
     in_block = False
@@ -933,15 +1613,25 @@ def compile_entries(path: Path) -> list[dict]:
     current_loop_ticks = None
     current_actions: list[tuple[str, str, str]] = []
     block_stack: list[str] = []  # nested blocks inside event/func/loop (e.g. if)
+    current_func_params: list[str] = []
+    current_func_has_return = False
 
     def flush_block():
-        nonlocal current_kind, current_name, current_loop_ticks, current_actions
+        nonlocal current_kind, current_name, current_loop_ticks, current_actions, current_func_params, current_func_has_return
         if not current_kind:
             return
 
         if current_kind == "event":
             ev_name = event_variant_to_name(current_name or "")
-            entries.append({"block": "diamond_block", "name": ev_name, "args": "no"})
+            nk = norm_key(ev_name)
+            if known_events and nk in known_events:
+                block, menu_name, expected_sign2 = known_events[nk]
+                entries.append({"block": block, "name": f"{menu_name}||{expected_sign2}", "args": "no"})
+            elif known_events:
+                raise ValueError(f"неизвестное событие: {ev_name}")
+            else:
+                # Fallback when no catalog is available.
+                entries.append({"block": "diamond_block", "name": ev_name, "args": "no"})
         elif current_kind == "func":
             entries.append({"block": "lapis_block", "name": (current_name or ""), "args": "no"})
         elif current_kind == "loop":
@@ -951,6 +1641,56 @@ def compile_entries(path: Path) -> list[dict]:
         else:
             raise ValueError(f"Unknown block kind: {current_kind}")
 
+        def to_tuple(res):
+            pieces, spec = res
+            args_str = ",".join(pieces) if pieces else "no"
+            sign1 = strip_colors(spec.get("sign1", "")).strip()
+            sign2 = spec_menu_name(spec)
+            menu = strip_colors(spec.get("menu", "")).strip()
+            sign1_norm = norm_key(sign1)
+            if sign1_norm in sign1_aliases:
+                sign1_norm = norm_key(sign1_aliases[sign1_norm])
+            block = blocks.get(sign1_norm)
+            if not block:
+                raise ValueError(
+                    f"Unknown block for sign1='{sign1}' (norm='{sign1_norm}'). Add to allactions.txt or Aliases.json"
+                )
+            block_tok = block.replace("minecraft:", "")
+            expected_sign2 = strip_colors(spec.get("sign2", "")).strip() or strip_colors(spec.get("gui", "")).strip()
+            string_name = sign2
+            if expected_sign2:
+                string_name = f"{(menu or sign2)}||{expected_sign2}"
+            return (block_tok, string_name, args_str)
+
+        # Function prologue: pop args stack into declared param variables (sync-only protocol).
+        if current_kind == "func" and current_func_params:
+            insert_at = 0
+            for pn in current_func_params:
+                res = compile_line(
+                    api,
+                    f"array.get_array(arr=arr({ARGS_STACK_NAME}), number=num({STACK_TOP_INDEX}), var=var({pn}))",
+                )
+                if not res:
+                    raise ValueError("func args: не найдено действие 'Получить элемент массива'")
+                current_actions.insert(insert_at, to_tuple(res))
+                insert_at += 1
+                res = compile_line(
+                    api, f"array.remove_array(arr=arr({ARGS_STACK_NAME}), number=num({STACK_TOP_INDEX}))"
+                )
+                if not res:
+                    raise ValueError("func args: не найдено действие 'Удалить элемент массива'")
+                current_actions.insert(insert_at, to_tuple(res))
+                insert_at += 1
+
+        # Implicit return to keep return stack consistent.
+        if current_kind == "func" and not current_func_has_return:
+            res = compile_line(
+                api, f"array.vstavit_v_massiv(arr=arr({RET_STACK_NAME}), number=num({STACK_TOP_INDEX}), value=text())"
+            )
+            if not res:
+                raise ValueError("implicit return: не найдено действие 'Вставить в массив'")
+            current_actions.append(to_tuple(res))
+
         for block, name, args in current_actions:
             entries.append({"block": block, "name": name, "args": (args or "no")})
 
@@ -958,23 +1698,47 @@ def compile_entries(path: Path) -> list[dict]:
         current_name = None
         current_loop_ticks = None
         current_actions = []
+        current_func_params = []
+        current_func_has_return = False
 
     def begin_new_row():
         # split rows by inserting a newline marker between blocks
         if entries:
             entries.append({"block": "newline"})
 
+    tmp_counter = 0
+
     for raw in lines:
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
 
+        # Optional namespace sugar:
+        # If user wrote `import test2` and then uses `test2.hello()`, strip `test2.`.
+        # Server has no namespaces; this is only readability sugar (collisions are user's responsibility).
+        for ns in imported_namespaces:
+            if ns:
+                line = re.sub(rf"\b{re.escape(ns)}\.", "", line)
+
         # Close nested blocks first (so } inside event/func doesn't flush the whole outer block).
         if line == "}" and block_stack:
-            block_stack.pop()
-            # Exit the server-side piston bracket by advancing the code cursor without placing anything.
-            # (Using "air" as a pause causes some servers to desync/teleport the player.)
-            current_actions.append(("skip", "", "no"))
+            kind = block_stack.pop()
+            if kind == "if":
+                # Exit the server-side piston bracket by advancing the code cursor without placing anything.
+                # (Using "air" as a pause causes some servers to desync/teleport the player.)
+                current_actions.append(("skip", "", "no"))
+            elif kind == "select":
+                prev = select_stack.pop() if select_stack else None
+                restore_default = select_default_stack.pop() if select_default_stack else DEFAULT_SELECT_PLAYER
+                current_select = prev
+                if prev is not None:
+                    current_actions.append(prev)
+                else:
+                    # Restore to default selection to avoid leaking selection outside the scope.
+                    # Heuristic: if the last select was entity-like, restore entity default, else player default.
+                    # (If we don't know, prefer player.)
+                    current_actions.append(restore_default)
+                    current_select = restore_default
             continue
 
         m_ifp = IFPLAYER_RE.match(line)
@@ -1191,7 +1955,7 @@ def compile_entries(path: Path) -> list[dict]:
             flush_block()
             begin_new_row()
             current_kind = "event"
-            current_name = m_ev.group(1)
+            current_name = (m_ev.group(1) or m_ev.group(2) or "").strip()
             in_block = True
             continue
         m_fn = FUNC_RE.match(line)
@@ -1200,6 +1964,13 @@ def compile_entries(path: Path) -> list[dict]:
             begin_new_row()
             current_kind = "func"
             current_name = m_fn.group(1)
+            params_raw = (m_fn.group(2) or "").strip()
+            params = func_sigs.get(current_name or "", [])
+            if params_raw and not params:
+                # should not happen (we pre-scanned), but keep safe
+                params = [p.strip() for p in split_args(params_raw) if p.strip()]
+            current_func_params = params
+            current_func_has_return = False
             in_block = True
             continue
         m_lp = LOOP_RE.match(line)
@@ -1218,7 +1989,132 @@ def compile_entries(path: Path) -> list[dict]:
         if not in_block:
             continue
 
-        builtins = compile_builtin(api, line)
+        # Selection (Выбрать объект) sugar:
+        # - select.<alias>(args?)
+        # - select.player.ifplayer.<alias>(args?)  (only last segment is matched; earlier segments are hints)
+        # - select.<alias> { ... }  (restores previous selection on })
+        m_sel = SELECT_RE.match(line)
+        if m_sel:
+            chain = (m_sel.group(1) or "").strip()
+            arg_str = (m_sel.group(2) or "").strip()
+            has_block = bool(m_sel.group(3))
+
+            prev_select = current_select
+            canon, _spec = find_select_action(chain)
+            sel_tuple, sel_spec = compile_action_tuple("misc", canon, arg_str)
+            current_actions.append(sel_tuple)
+            current_select = sel_tuple
+
+            if has_block:
+                block_stack.append("select")
+                select_stack.append(prev_select)
+                dom = select_domain(sel_spec)
+                select_default_stack.append(DEFAULT_SELECT_ENTITY if dom == "entity" else DEFAULT_SELECT_PLAYER)
+            continue
+
+        # Special-case: allow simple nested return in message:
+        #   player.message(foo("x"))
+        # becomes:
+        #   __tmpN = foo()
+        #   player.message("%var(__tmpN)%")
+        m_nested_msg = re.match(r"^\s*player\.message\s*\(\s*([\w\u0400-\u04FF]+)\s*\((.*)\)\s*\)\s*;?\s*$", line, re.I)
+        if m_nested_msg:
+            fn = (m_nested_msg.group(1) or "").strip()
+            inside = (m_nested_msg.group(2) or "").strip()
+            tmp_counter += 1
+            tmp = f"{TMP_VAR_PREFIX}{tmp_counter}"
+            builtins = compile_builtin(api, f"{tmp} = {fn}({inside})", func_sigs=func_sigs)
+            if not builtins:
+                raise ValueError(f"Не получилось скомпилировать вызов функции {fn}() для вложенного message()")
+            for pieces, spec in builtins:
+                args_str = ",".join(pieces)
+                sign1 = strip_colors(spec.get("sign1", "")).strip()
+                sign2 = spec_menu_name(spec)
+                menu = strip_colors(spec.get("menu", "")).strip()
+                sign1_norm = norm_key(sign1)
+                if sign1_norm in sign1_aliases:
+                    sign1_norm = norm_key(sign1_aliases[sign1_norm])
+                block = blocks.get(sign1_norm)
+                if not block:
+                    raise ValueError(
+                        f"Unknown block for sign1='{sign1}' (norm='{sign1_norm}'). Add to allactions.txt or Aliases.json"
+                    )
+                block_tok = block.replace("minecraft:", "")
+                expected_sign2 = strip_colors(spec.get("sign2", "")).strip() or strip_colors(spec.get("gui", "")).strip()
+                StringName = sign2
+                if expected_sign2:
+                    StringName = f"{(menu or sign2)}||{expected_sign2}"
+                current_actions.append((block_tok, StringName, args_str))
+            # Now emit the message itself using the computed tmp var.
+            res = compile_line(api, f'player.message("%var({tmp})%")')
+            if not res:
+                raise ValueError("Не найдено действие player.message()")
+            pieces, spec = res
+            args_str = ",".join(pieces)
+            sign1 = strip_colors(spec.get("sign1", "")).strip()
+            sign2 = spec_menu_name(spec)
+            menu = strip_colors(spec.get("menu", "")).strip()
+            sign1_norm = norm_key(sign1)
+            if sign1_norm in sign1_aliases:
+                sign1_norm = norm_key(sign1_aliases[sign1_norm])
+            block = blocks.get(sign1_norm)
+            if not block:
+                raise ValueError(
+                    f"Unknown block for sign1='{sign1}' (norm='{sign1_norm}'). Add to allactions.txt or Aliases.json"
+                )
+            block_tok = block.replace("minecraft:", "")
+            expected_sign2 = strip_colors(spec.get("sign2", "")).strip() or strip_colors(spec.get("gui", "")).strip()
+            StringName = sign2
+            if expected_sign2:
+                StringName = f"{(menu or sign2)}||{expected_sign2}"
+            current_actions.append((block_tok, StringName, args_str))
+            continue
+
+        m_ret = re.match(r"^\s*return(?:\s*\(\s*(.*?)\s*\)\s*|\s+(.*))\s*$", line, re.I)
+        if m_ret:
+            if current_kind != "func":
+                raise ValueError("return можно использовать только внутри func{}")
+            current_func_has_return = True
+            expr = (m_ret.group(1) or m_ret.group(2) or "").strip()
+            # default: return empty text
+            if not expr:
+                expr = "text()"
+            else:
+                # normalize simple literals for return
+                if (expr.startswith('"') and expr.endswith('"')) or (expr.startswith("'") and expr.endswith("'")):
+                    expr = f"text({expr[1:-1]})"
+                elif re.match(r"^-?\d+(?:\.\d+)?$", expr):
+                    expr = f"num({expr})"
+                elif re.match(rf"^{NAME_RE}$", expr) and not expr.lower().startswith(("text(", "num(", "var(", "arr(", "loc(")):
+                    expr = f"var({expr})"
+            res = compile_line(
+                api,
+                f"array.vstavit_v_massiv(arr=arr({RET_STACK_NAME}), number=num({STACK_TOP_INDEX}), value={expr})",
+            )
+            if not res:
+                raise ValueError("return: не найдено действие 'Вставить в массив'")
+            pieces, spec = res
+            args_str = ",".join(pieces)
+            sign1 = strip_colors(spec.get("sign1", "")).strip()
+            sign2 = spec_menu_name(spec)
+            menu = strip_colors(spec.get("menu", "")).strip()
+            sign1_norm = norm_key(sign1)
+            if sign1_norm in sign1_aliases:
+                sign1_norm = norm_key(sign1_aliases[sign1_norm])
+            block = blocks.get(sign1_norm)
+            if not block:
+                raise ValueError(
+                    f"Unknown block for sign1='{sign1}' (norm='{sign1_norm}'). Add to allactions.txt or Aliases.json"
+                )
+            block_tok = block.replace("minecraft:", "")
+            expected_sign2 = strip_colors(spec.get("sign2", "")).strip() or strip_colors(spec.get("gui", "")).strip()
+            StringName = sign2
+            if expected_sign2:
+                StringName = f"{(menu or sign2)}||{expected_sign2}"
+            current_actions.append((block_tok, StringName, args_str))
+            continue
+
+        builtins = compile_builtin(api, line, func_sigs=func_sigs, debug_stacks=debug_stacks)
         if builtins:
             for pieces, spec in builtins:
                 args_str = ",".join(pieces)

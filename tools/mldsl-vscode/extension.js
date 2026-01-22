@@ -27,9 +27,90 @@ function getConfig() {
   };
 }
 
+function stripMcColors(s) {
+  return String(s || "")
+    .replace(/\u00a7./g, "")
+    .replace(/[\x00-\x1f]/g, "");
+}
+
+function normKey(s) {
+  return stripMcColors(s)
+    .toLowerCase()
+    .replace(/[\s_\\-]+/g, "")
+    .trim();
+}
+
+function isSelectSpec(spec) {
+  if (!spec) return false;
+  const s1 = normKey(spec.sign1 || "");
+  // Some servers use "обьект" typo; accept both.
+  return s1 === normKey("Выбрать объект") || s1 === normKey("Выбрать обьект");
+}
+
+function selectDomain(spec) {
+  const blob = `${spec.sign2 || ""} ${spec.gui || ""} ${spec.menu || ""}`.toLowerCase();
+  if (blob.includes("моб") || blob.includes("сущност")) return "entity";
+  if (blob.includes("игрок")) return "player";
+  return "player";
+}
+
+function selectHintsFromRawModule(rawModule) {
+  const raw = String(rawModule || "").toLowerCase();
+  const parts = raw.split(".").filter(Boolean);
+  const has = (needle) => parts.some((p) => p.replace(/[\s_\\-]/g, "").includes(needle));
+  return {
+    wantPlayer: has("player") || has("игрок"),
+    wantEntity: has("entity") || has("mob") || has("моб") || has("сущность") || has("существо"),
+  };
+}
+
 function loadApi() {
   const { apiAliasesPath } = getConfig();
   return readJsonSafe(apiAliasesPath) || {};
+}
+
+function loadEventsCatalog() {
+  const { apiAliasesPath } = getConfig();
+  if (!apiAliasesPath) return { all: [], byPrefix: {} };
+  const dir = path.dirname(String(apiAliasesPath));
+  const p = path.join(dir, "actions_catalog.json");
+  const catalog = readJsonSafe(p);
+  if (!Array.isArray(catalog)) return { all: [], byPrefix: {} };
+
+  function parseItemDisplayName(raw) {
+    if (!raw) return "";
+    let s = stripMcColors(raw);
+    if (s.includes("]")) s = s.split("]", 2)[1];
+    s = String(s || "").trim();
+    if (s.includes("|")) s = s.split("|", 2)[0].trim();
+    return s;
+  }
+
+  const all = [];
+  for (const rec of catalog) {
+    const signs = (rec && rec.signs) || [];
+    const sign1 = stripMcColors(signs[0] || "").trim();
+    const sign2 = stripMcColors(signs[1] || "").trim();
+    const menu = parseItemDisplayName((rec && (rec.subitem || rec.category)) || "") || sign2;
+    if (!menu) continue;
+    let kind = null;
+    if (sign1 === "Событие игрока") kind = "player";
+    else if (sign1 === "Событие мира") kind = "world";
+    if (!kind) continue;
+    all.push({ kind, name: menu, sign2 });
+  }
+
+  // simple prefix index (normalized by lower + remove spaces/_)
+  function norm(x) {
+    return String(x || "").toLowerCase().replace(/[\s_\\-]/g, "");
+  }
+  const byPrefix = {};
+  for (const e of all) {
+    // index by GUI-item name and by sign2 (so typing "Правый клик" still suggests the event)
+    byPrefix[norm(e.name)] = e;
+    if (e.sign2) byPrefix[norm(e.sign2)] = e;
+  }
+  return { all, byPrefix };
 }
 
 function buildLookup(api) {
@@ -46,9 +127,61 @@ function buildLookup(api) {
     }
   }
   // hardcoded module aliases (draft)
-  if (lookup.player && !lookup["игрок"]) lookup["игрок"] = lookup.player;
-  if (lookup.event && !lookup["событие"]) lookup["событие"] = lookup.event;
+  const moduleAliases = {
+    "игрок": "player",
+    "player": "player",
+    "если_игрок": "if_player",
+    "еслиигрок": "if_player",
+    "if_player": "if_player",
+    "если_игра": "if_game",
+    "еслиигра": "if_game",
+    "if_game": "if_game",
+    "игра": "game",
+    "game": "game",
+    "перем": "var",
+    "переменная": "var",
+    "var": "var",
+    "массив": "array",
+    "array": "array",
+    "если_значение": "if_value",
+    "еслизначение": "if_value",
+    "if_value": "if_value",
+    "misc": "misc",
+    "select": "misc",
+    "vyborka": "misc",
+    "выборка": "misc",
+  };
+  for (const [alias, target] of Object.entries(moduleAliases)) {
+    if (lookup[target] && !lookup[alias]) lookup[alias] = lookup[target];
+  }
   return lookup;
+}
+
+function normalizeModuleName(name) {
+  const s = String(name || "");
+  if (s === "SelectObject.player.IfPlayer") return "if_player";
+  if (s === "IfGame") return "if_game";
+  const low = s.toLowerCase();
+  // Selection sugar: allow chains like select.player.ifplayer.<leaf>
+  if (low.startsWith("select.") || low.startsWith("vyborka.") || low.startsWith("выборка.")) return "select";
+  return s;
+}
+
+function findEventCallContext(lineText, positionChar) {
+  const left = lineText.slice(0, positionChar);
+  if ((left.match(/\"/g) || []).length % 2 === 1) return null;
+  const m = left.match(/\b(?:event|событие)\s*\(\s*([^\)]*)$/i);
+  if (!m) return null;
+  const inside = m[1] || "";
+  if (inside.includes(")")) return null;
+  return { inside };
+}
+
+function findEventDotContext(lineText, positionChar) {
+  const left = lineText.slice(0, positionChar);
+  const m = left.match(/\b(?:event|событие)\.([\w\u0400-\u04FF]*)$/i);
+  if (!m) return null;
+  return { prefix: m[1] || "" };
 }
 
 function findModuleAndPrefix(lineText, positionChar) {
@@ -66,15 +199,17 @@ function findModuleAndPrefix(lineText, positionChar) {
   // only trigger when cursor is right after the match
   if (last.end !== left.length) return null;
   
-  // Нормализация модуля для старого синтаксиса
-  let normalizedModule = last.module;
-  if (normalizedModule === "SelectObject.player.IfPlayer") {
-    normalizedModule = "if_player";
-  } else if (normalizedModule === "IfGame") {
-    normalizedModule = "if_game";
-  }
-  
-  return { module: normalizedModule, prefix: last.prefix };
+  // Нормализация модуля для старого синтаксиса + сохранение rawModule (нужно для select.* цепочек)
+  return { module: normalizeModuleName(last.module), rawModule: last.module, prefix: last.prefix };
+}
+
+function findSelectDotContext(lineText, positionChar) {
+  const left = lineText.slice(0, positionChar);
+  // If we are inside quotes, don't trigger.
+  if ((left.match(/\"/g) || []).length % 2 === 1) return null;
+  const m = left.match(/\b(?:select|vyborka|выборка)\.([\w\u0400-\u04FF]*)$/i);
+  if (!m) return null;
+  return { prefix: m[1] || "", rawModule: "select" };
 }
 
 function findQualifiedAtPosition(document, position) {
@@ -91,17 +226,25 @@ function findQualifiedAtPosition(document, position) {
       );
       
       // Нормализация модуля для старого синтаксиса
-      let normalizedModule = m[1];
-      if (normalizedModule === "SelectObject.player.IfPlayer") {
-        normalizedModule = "if_player";
-      } else if (normalizedModule === "IfGame") {
-        normalizedModule = "if_game";
-      }
-      
-      return { module: normalizedModule, func: m[2], range, text: m[0] };
+      return { module: normalizeModuleName(m[1]), func: m[2], range, text: m[0] };
     }
   }
   return null;
+}
+
+function findCallContext(lineText, positionChar) {
+  const left = lineText.slice(0, positionChar);
+  if ((left.match(/\"/g) || []).length % 2 === 1) return null;
+  const re = /([a-zA-Z_\u0400-\u04FF][\w\u0400-\u04FF]*(?:\.[a-zA-Z_\u0400-\u04FF][\w\u0400-\u04FF]*)*)\.([\w\u0400-\u04FF]+)\s*\(/g;
+  let m;
+  let last = null;
+  while ((m = re.exec(left))) {
+    last = { module: m[1], func: m[2], openParen: m.index + m[0].length - 1 };
+  }
+  if (!last) return null;
+  const inside = left.slice(last.openParen + 1);
+  if (inside.includes(")")) return null;
+  return { module: normalizeModuleName(last.module), func: last.func, inside };
 }
 
 function specToMarkdown(spec) {
@@ -163,12 +306,21 @@ function specToMarkdown(spec) {
       buf = "";
     }
 
+    function readFormatCode(str, idx) {
+      const ch = str[idx];
+      // §a, §b...
+      if (ch === "§") return { code: str[idx + 1], skip: 1 };
+      // Sometimes seen as "Â§a" after double-decoding UTF-8
+      if (ch === "Â" && str[idx + 1] === "§") return { code: str[idx + 2], skip: 2 };
+      return null;
+    }
+
     for (let i = 0; i < s.length; i++) {
-      const ch = s[i];
-      if (ch === "§" && i + 1 < s.length) {
+      const fmt = readFormatCode(s, i);
+      if (fmt && fmt.code) {
         flush();
-        const code = s[i + 1].toLowerCase();
-        i++;
+        const code = String(fmt.code).toLowerCase();
+        i += fmt.skip;
         if (colors[code]) {
           color = colors[code];
         } else if (code === "l") {
@@ -188,13 +340,14 @@ function specToMarkdown(spec) {
         }
         continue;
       }
-      buf += ch;
+      buf += s[i];
     }
     flush();
     return out;
   }
 
   const lines = [];
+  if (spec.menu) lines.push(`**item:** ${spec.menu}`);
   if (spec.sign1) lines.push(`**sign1:** ${spec.sign1}`);
   if (spec.sign2) lines.push(`**sign2:** ${spec.sign2}`);
   if (spec.gui) lines.push(`**gui:** ${spec.gui}`);
@@ -226,6 +379,19 @@ function specToMarkdown(spec) {
     lines.push("**enums:**");
     for (const e of spec.enums) {
       lines.push(`- \`${e.name}\` slot ${e.slot}`);
+      const opts = e.options || {};
+      const keys = Object.keys(opts);
+      if (keys.length) {
+        const max = 12;
+        for (const k of keys.slice(0, max)) {
+          const v = opts[k];
+          const suffix = v === 0 ? " (default)" : "";
+          lines.push(`  - \`${k}\` → clicks=${v}${suffix}`);
+        }
+        if (keys.length > max) {
+          lines.push(`  - … (+${keys.length - max})`);
+        }
+      }
     }
   }
   const md = new vscode.MarkdownString(lines.join("\n"));
@@ -237,16 +403,19 @@ function specToMarkdown(spec) {
 function activate(context) {
   let api = {};
   let lookup = {};
+  let events = { all: [], byPrefix: {} };
   let statusItem = null;
 
   function reloadApi(reason) {
     const { apiAliasesPath, docsRoot } = getConfig();
     api = loadApi();
     lookup = buildLookup(api);
+    events = loadEventsCatalog();
     output.appendLine(`[reload] ${reason || "manual"}`);
     output.appendLine(`  apiAliasesPath=${apiAliasesPath}`);
     output.appendLine(`  docsRoot=${docsRoot}`);
     output.appendLine(`  apiLoadedModules=${Object.keys(api).length}`);
+    output.appendLine(`  eventsLoaded=${events.all.length}`);
     if (apiAliasesPath && !fs.existsSync(apiAliasesPath)) {
       output.appendLine(`  WARN: apiAliasesPath does not exist`);
     }
@@ -397,6 +566,199 @@ function activate(context) {
       provideCompletionItems(document, position) {
         const id = ++seq;
         const line = document.lineAt(position.line).text;
+
+        // select.<...> completion (works even when generic module matcher fails)
+        const selDot = findSelectDotContext(line, position.character);
+        if (selDot) {
+          const mod = lookup[moduleAliases["select"]] || lookup["misc"];
+          if (!mod) return;
+          const prefix = String(selDot.prefix || "");
+          const items = [];
+
+          // Common built-in english shorthands supported by the compiler.
+          const builtins = [
+            { label: "allplayers", detail: "Выбрать всех игроков", insertText: "allplayers" },
+            { label: "allmobs", detail: "Выбрать всех мобов", insertText: "allmobs" },
+            { label: "allentities", detail: "Выбрать всех сущностей", insertText: "allentities" },
+            { label: "randomplayer", detail: "Выбрать случайного игрока", insertText: "randomplayer" },
+            { label: "randommob", detail: "Выбрать случайного моба", insertText: "randommob" },
+            { label: "randomentity", detail: "Выбрать случайную сущность", insertText: "randomentity" },
+            { label: "defaultplayer", detail: "Выбрать игрока по умолчанию", insertText: "defaultplayer" },
+            { label: "defaultentity", detail: "Выбрать сущность по умолчанию", insertText: "defaultentity" },
+          ];
+          for (const b of builtins) {
+            if (prefix && !b.label.startsWith(prefix)) continue;
+            const it = new vscode.CompletionItem(b.label, vscode.CompletionItemKind.Function);
+            it.detail = `select.${b.label} · ${b.detail}`;
+            it.insertText = b.insertText;
+            items.push(it);
+          }
+
+          const hints = [
+            { label: "player", insertText: "player." },
+            { label: "entity", insertText: "entity." },
+            { label: "mob", insertText: "mob." },
+            { label: "ifplayer", insertText: "ifplayer." },
+            { label: "ifmob", insertText: "ifmob." },
+            { label: "ifentity", insertText: "ifentity." },
+            { label: "игрок", insertText: "игрок." },
+            { label: "сущность", insertText: "сущность." },
+            { label: "моб", insertText: "моб." },
+            { label: "еслиигрок", insertText: "еслиигрок." },
+            { label: "еслисущество", insertText: "еслисущество." },
+          ];
+          for (const h of hints) {
+            if (prefix && !h.label.startsWith(prefix)) continue;
+            const item = new vscode.CompletionItem(h.label, vscode.CompletionItemKind.Keyword);
+            item.detail = "Подсказка для select (не действие)";
+            item.insertText = h.insertText;
+            items.push(item);
+          }
+
+          for (const [alias, entry] of Object.entries(mod.byName)) {
+            if (prefix && !alias.startsWith(prefix)) continue;
+            const spec = entry.spec;
+            if (!isSelectSpec(spec)) continue;
+            const funcName = entry.funcName;
+            const item = new vscode.CompletionItem(alias, vscode.CompletionItemKind.Function);
+            const params = (spec.params || []).map((p) => p.name).join(", ");
+            const menuName = spec.menu ? ` · ${spec.menu}` : "";
+            item.detail = `select.${funcName}(${params})${menuName}`;
+            item.documentation = specToMarkdown(spec);
+            items.push(item);
+          }
+
+          output.appendLine(`[completion#${id}] select-dot prefix='${prefix}' items=${items.length}`);
+          return items.slice(0, 120);
+        }
+
+        // event(...) completion
+        const evCall = findEventCallContext(line, position.character);
+        if (evCall && events.all.length) {
+          const prefixRaw = String(evCall.inside || "").trim().replace(/^\"|\"$/g, "");
+          const prefix = prefixRaw.toLowerCase();
+          const items = [];
+          for (const e of events.all) {
+            const hay = `${e.name} ${e.sign2 || ""}`.toLowerCase();
+            if (prefix && !hay.includes(prefix)) continue;
+            const item = new vscode.CompletionItem(e.name, vscode.CompletionItemKind.EnumMember);
+            item.detail = `${e.kind === "world" ? "Событие мира" : "Событие игрока"}${e.sign2 ? ` (sign2: ${e.sign2})` : ""}`;
+            item.insertText = `"${e.name}"`;
+            items.push(item);
+          }
+          if (items.length) {
+            output.appendLine(`[completion#${id}] event(...) items=${items.length}`);
+            return items.slice(0, 80);
+          }
+        }
+
+        // event.<name> snippet completion
+        const evDot = findEventDotContext(line, position.character);
+        if (evDot && events.all.length) {
+          const prefix = String(evDot.prefix || "").toLowerCase();
+          const items = [];
+          for (const e of events.all) {
+            const hay = `${e.name} ${e.sign2 || ""}`.toLowerCase();
+            if (prefix && !hay.includes(prefix)) continue;
+            const item = new vscode.CompletionItem(e.name, vscode.CompletionItemKind.Snippet);
+            item.detail = `${e.kind === "world" ? "Событие мира" : "Событие игрока"}${e.sign2 ? ` (sign2: ${e.sign2})` : ""}`;
+            item.insertText = new vscode.SnippetString(`event("${e.name}") {\n\t$0\n}`);
+            items.push(item);
+          }
+          if (items.length) {
+            output.appendLine(`[completion#${id}] event.<...> items=${items.length}`);
+            return items.slice(0, 80);
+          }
+        }
+
+        // Argument completion: module.func(... here ...)
+        const call = findCallContext(line, position.character);
+        if (call) {
+          const mod = lookup[call.module];
+          if (!mod) return;
+          const entry = mod.byName[call.func];
+          if (!entry) return;
+          const spec = entry.spec || {};
+
+          const params = Array.isArray(spec.params) ? spec.params : [];
+          const enums = Array.isArray(spec.enums) ? spec.enums : [];
+
+          const parts = call.inside.split(",");
+          const token = String(parts[parts.length - 1] || "").trim();
+          const mEq = token.match(/^([\w\u0400-\u04FF]+)\s*=\s*(.*)$/);
+
+          // Value completion for enum: key=value (suggest enum options)
+          if (mEq) {
+            const key = mEq[1];
+            const valuePrefix = (mEq[2] || "").trim();
+
+            let chosenEnum = null;
+            if (enums.length === 1) {
+              chosenEnum = enums[0];
+            } else {
+              chosenEnum = enums.find((e) => e && e.name === key) || null;
+            }
+
+            if (chosenEnum && chosenEnum.options) {
+              const opts = chosenEnum.options || {};
+              const items = [];
+              const alreadyQuoted = valuePrefix.startsWith("\"") || valuePrefix.startsWith("'");
+
+              // Extra shorthands for common "separator" enums.
+              const optText = Object.keys(opts).join(" ").toLowerCase();
+              const hasNoSep = optText.includes("без");
+              const hasSpaceSep = optText.includes("пробел");
+              const hasNewlineSep = optText.includes("строк");
+              if (hasNoSep && hasSpaceSep && hasNewlineSep) {
+                const it0 = new vscode.CompletionItem("(default) \"\"", vscode.CompletionItemKind.EnumMember);
+                it0.detail = "alias: empty string";
+                it0.insertText = "\"\"";
+                items.push(it0);
+                const it1 = new vscode.CompletionItem("(space) \" \"", vscode.CompletionItemKind.EnumMember);
+                it1.detail = "alias: space";
+                it1.insertText = "\" \"";
+                items.push(it1);
+                const it2 = new vscode.CompletionItem("(newline) \"\\\\n\"", vscode.CompletionItemKind.EnumMember);
+                it2.detail = "alias: newline";
+                it2.insertText = "\"\\\\n\"";
+                items.push(it2);
+              }
+
+              for (const [label, clicks] of Object.entries(opts)) {
+                const item = new vscode.CompletionItem(label, vscode.CompletionItemKind.EnumMember);
+                item.detail = `${call.module}.${entry.funcName} enum ${chosenEnum.name} clicks=${clicks}`;
+                item.insertText = alreadyQuoted ? label : `"${label}"`;
+                items.push(item);
+              }
+              if (items.length) {
+                output.appendLine(
+                  `[completion#${id}] enum values ${call.module}.${entry.funcName} key=${key} items=${items.length}`
+                );
+                return items;
+              }
+            }
+          }
+
+          // Key completion inside (...) : suggest param/enum names.
+          const argItems = [];
+          for (const p of params) {
+            const item = new vscode.CompletionItem(p.name, vscode.CompletionItemKind.Property);
+            item.detail = `param ${p.mode} slot ${p.slot}`;
+            item.insertText = new vscode.SnippetString(`${p.name}=\${1}`);
+            argItems.push(item);
+          }
+          for (const e of enums) {
+            const item = new vscode.CompletionItem(e.name, vscode.CompletionItemKind.Property);
+            item.detail = `enum slot ${e.slot}`;
+            item.insertText = new vscode.SnippetString(`${e.name}=\${1}`);
+            argItems.push(item);
+          }
+          if (argItems.length) {
+            output.appendLine(`[completion#${id}] arg keys ${call.module}.${entry.funcName} items=${argItems.length}`);
+            return argItems;
+          }
+        }
+
         const info = findModuleAndPrefix(line, position.character);
         
         // Автодополнение для ключевых слов if_player и if_game
@@ -440,20 +802,53 @@ function activate(context) {
           return;
         }
 
-        const mod = lookup[info.module];
+        let mod = lookup[info.module];
+        if (info.module === "select") {
+          mod = lookup[moduleAliases["select"]] || lookup["misc"];
+        }
         if (!mod) {
           output.appendLine(`[completion#${id}] module not found: ${info.module}`);
           return;
         }
 
         const items = [];
+        if (info.module === "select") {
+          const { wantPlayer, wantEntity } = selectHintsFromRawModule(info.rawModule);
+          const hints = [
+            { label: "player", insertText: "player." },
+            { label: "entity", insertText: "entity." },
+            { label: "mob", insertText: "mob." },
+            { label: "ifplayer", insertText: "ifplayer." },
+            { label: "ifmob", insertText: "ifmob." },
+            { label: "игрок", insertText: "игрок." },
+            { label: "сущность", insertText: "сущность." },
+            { label: "моб", insertText: "моб." },
+            { label: "еслиигрок", insertText: "еслиигрок." },
+            { label: "еслисущество", insertText: "еслисущество." },
+          ];
+          for (const h of hints) {
+            if (info.prefix && !h.label.startsWith(info.prefix)) continue;
+            const item = new vscode.CompletionItem(h.label, vscode.CompletionItemKind.Keyword);
+            item.detail = "Подсказка для select (не действие)";
+            item.insertText = h.insertText;
+            items.push(item);
+          }
+        }
         for (const [alias, entry] of Object.entries(mod.byName)) {
           if (info.prefix && !alias.startsWith(info.prefix)) continue;
           const funcName = entry.funcName;
           const spec = entry.spec;
+          if (info.module === "select") {
+            const { wantPlayer, wantEntity } = selectHintsFromRawModule(info.rawModule);
+            if (!isSelectSpec(spec)) continue;
+            const dom = selectDomain(spec);
+            if (wantEntity && dom !== "entity") continue;
+            if (wantPlayer && dom !== "player") continue;
+          }
           const item = new vscode.CompletionItem(alias, vscode.CompletionItemKind.Function);
           const params = (spec.params || []).map((p) => p.name).join(", ");
-          item.detail = `${info.module}.${funcName}(${params})`;
+          const menuName = spec.menu ? ` — ${spec.menu}` : "";
+          item.detail = `${info.module}.${funcName}(${params})${menuName}`;
           if (alias !== funcName) {
             item.detail += `  (alias of ${funcName})`;
           }
@@ -466,12 +861,37 @@ function activate(context) {
         return items;
       },
     },
-    "."
+    ".",
+    "(",
+    ",",
+    "=",
+    ".",
+    " ",
+    "\"",
+    "'"
   );
 
   const hoverProvider = vscode.languages.registerHoverProvider({ language: "mldsl" }, {
     provideHover(document, position) {
       const id = ++seq;
+      // event(...) hover
+      const line = document.lineAt(position.line).text;
+      const m = line.match(/\b(?:event|событие)\s*\(\s*([^\)]*)\s*\)/i);
+      if (m && events.all.length) {
+        const md = new vscode.MarkdownString();
+        md.isTrusted = true;
+        md.supportHtml = true;
+        const allPlayer = events.all.filter((x) => x.kind === "player").map((x) => x.name);
+        const allWorld = events.all.filter((x) => x.kind === "world").map((x) => x.name);
+        md.appendMarkdown(`**События (из regallactions_export):**\n\n`);
+        md.appendMarkdown(`- Событие игрока: ${allPlayer.length}\n`);
+        md.appendMarkdown(`- Событие мира: ${allWorld.length}\n\n`);
+        const sample = events.all.slice(0, 30).map((x) => `- ${x.name}`).join("\n");
+        md.appendMarkdown(`**Примеры:**\n${sample}\n`);
+        output.appendLine(`[hover#${id}] event hover list items=${events.all.length}`);
+        return new vscode.Hover(md);
+      }
+
       const q = findQualifiedAtPosition(document, position);
       if (!q) return;
       const mod = lookup[q.module];
@@ -522,6 +942,34 @@ function activate(context) {
   function updateDiagnostics(doc) {
     if (!doc || doc.languageId !== "mldsl") return;
     const diags = [];
+
+    // Brace balance (very simple, best-effort; ignores braces inside string literals).
+    let depth = 0;
+    for (let lineNum = 0; lineNum < doc.lineCount; lineNum++) {
+      const original = doc.lineAt(lineNum).text;
+      const line = original.replace(/\"([^\"\\\\]|\\\\.)*\"/g, "\"\"");
+      for (let i = 0; i < line.length; i++) {
+        if (line[i] === "{") depth++;
+        else if (line[i] === "}") depth--;
+        if (depth < 0) {
+          const range = new vscode.Range(
+            new vscode.Position(lineNum, i),
+            new vscode.Position(lineNum, i + 1)
+          );
+          diags.push(new vscode.Diagnostic(range, "Extra '}'", vscode.DiagnosticSeverity.Error));
+          depth = 0;
+        }
+      }
+    }
+    if (depth > 0) {
+      const lastLine = Math.max(0, doc.lineCount - 1);
+      const lastLen = doc.lineAt(lastLine).text.length;
+      const range = new vscode.Range(new vscode.Position(lastLine, lastLen), new vscode.Position(lastLine, lastLen));
+      diags.push(
+        new vscode.Diagnostic(range, `Missing '}' (unclosed blocks: ${depth})`, vscode.DiagnosticSeverity.Error)
+      );
+    }
+
     const re = /([a-zA-Z_][\w]*)\.([\w\u0400-\u04FF]+)/g;
     for (let lineNum = 0; lineNum < doc.lineCount; lineNum++) {
       const line = doc.lineAt(lineNum).text;
