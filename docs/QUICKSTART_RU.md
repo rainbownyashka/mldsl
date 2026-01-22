@@ -1,69 +1,48 @@
 # MLDSL — быстрый старт (RU)
 
-## 1) Сборка API/доков
+## 1) Собрать API (локально)
 
 `python tools/build_all.py`
 
-## 2) Компиляция файла
+Это сгенерирует `out/api_aliases.json` и локальные доки в `out/docs/`.
 
-`python tools/mldsl_compile.py test.mldsl`
+## 2) Скомпилировать файл в plan.json
 
-Полезно для отладки (посмотреть plan.json):
+Вариант “печатать в stdout”:
 
 `python tools/mldsl_compile.py test.mldsl --print-plan`
 
-## 3) Минимальный пример
+Вариант “записать план” (по умолчанию в `%APPDATA%\\.minecraft\\plan.json`):
+
+`python tools/mldsl_compile.py test.mldsl --plan "%APPDATA%\\.minecraft\\plan.json"`
+
+## 3) Запуск в игре
+
+`/mldsl run "%APPDATA%\\.minecraft\\plan.json"`
+
+## 4) Минимальные примеры
+
+### Событие
 
 ```mldsl
-событие(вход) {
+event("Вход игрока") {
     player.message("Привет!")
 }
 ```
 
-## 4) Функции
+### Выборка
 
 ```mldsl
-func hello {
-    player.message("Hello")
-}
-
-событие(вход) {
-    hello()
+select.allplayers {
+    player.message("hi")
 }
 ```
 
-## 5) Переменные и присваивание
+### Выдать предметы (через item(...))
 
 ```mldsl
-event(вход) {
-    score = 1
-    save total = 10
-    %selected%counter = %selected%counter + 1
-}
+игрок.выдать_предметы(
+    item("stone", count=3),
+    item("diamond", count=2)
+)
 ```
-
-## 6) Условия
-
-```mldsl
-событие(вход) {
-    if %selected%counter < 2 {
-        player.message("Мало")
-    }
-    если_игрок.сообщение_равно("!ping") {
-        player.message("pong")
-    }
-}
-```
-
-## 7) Импорт модулей (других файлов)
-
-```mldsl
-использовать продвинутые_массивы
-использовать ext/продвинутые_массивы
-import extarray from ext
-```
-
-## Где смотреть список функций
-
-- Индекс: `out/docs/README.md`
-- Полный список: `out/docs/ALL_FUNCTIONS.md`

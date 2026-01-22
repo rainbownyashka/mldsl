@@ -1,17 +1,21 @@
-## MLDSL Compiler
-Компиляторчик кода для мл в связке с принтером. Написан ии. Пока сломана компиляция аргументов и переменные (вроде в прошлом коммите работало)
-большей инфы пока не положено. кто хочет тот поковыряется в коде.
-# Build
+# MLDSL (RU-first)
 
-- One command: `python tools/build_all.py`
+MLDSL — DSL/компилятор для Mineland-кодинга (Minecraft), который превращает `.mldsl` в `plan.json` для исполнения модом через `/mldsl run`.
 
-# Docs (EN/RU)
+## Документация
 
-Generated into `out/docs` by `python tools/build_all.py`:
+- Быстрый старт (RU): `docs/QUICKSTART_RU.md`
+- Полный гайд (RU): `docs/MLDSL_GUIDE_RU.md`
 
-- Index (language picker): [out/docs/README.md](out/docs/README.md)
-- Быстрый старт (RU): [docs/QUICKSTART_RU.md](docs/QUICKSTART_RU.md)
-- Quickstart (EN): [out/docs/QUICKSTART.md](out/docs/QUICKSTART.md)
-- Full guide (EN): [out/docs/MLDSL_GUIDE.md](out/docs/MLDSL_GUIDE.md)
-- Полный гайд (RU): [out/docs/MLDSL_GUIDE_RU.md](out/docs/MLDSL_GUIDE_RU.md)
-- Full API dump: [out/docs/ALL_FUNCTIONS.md](out/docs/ALL_FUNCTIONS.md)
+## Сборка каталога действий (локально)
+
+Каталог действий и автодоки генерируются локально в `out/`:
+
+- `python tools/build_all.py`
+
+Папка `out/` не коммитится в Git (перегенерируется на машине).
+
+## VSCode
+
+- Расширение: `tools/mldsl-vscode/`
+- Готовый `.vsix` (локальная сборка): `tools/mldsl-vscode/mldsl-helper-0.0.20.vsix`
