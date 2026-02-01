@@ -1,56 +1,43 @@
-# Сборка `mldsl.exe`
+# Сборка установщика (Windows)
 
-В репозитории есть entrypoint `mldsl_cli.py` (команды `build-all`, `compile`, `paths`).
+Этот репозиторий умеет собирать установщик, который содержит:
 
-## Быстрый путь (для релиза + инсталлер)
+- `mldsl.exe` (скомпилированный CLI);
+- read-only assets (`Aliases.json`, `LangTokens.json`, `allactions.txt`);
+- seed-снапшот `out/` (доки + api_aliases), чтобы всё работало сразу после установки;
+- опционально VSCode расширение `mldsl-helper.vsix`.
 
-Собирает всё, что нужно Inno Setup (`dist/payload/...`):
+## 1) Подготовка payload
+
+Payload — это папка `dist/payload/...`, которую потом забирает Inno Setup (`installer/MLDSL.iss`).
+
+Локально (с пересборкой `out/` из твоего `.minecraft/regallactions_export.txt` и `apples.txt`):
 
 ```powershell
 python packaging\prepare_installer_payload.py
 ```
 
-## Вариант A (рекомендую): Nuitka standalone
-
-Плюсы:
-- не нужен Python на ПК пользователя (если собирать `--standalone`)
-- обычно меньше “pyinstaller-вирус” ложных срабатываний (но зависит от AV)
-
-Минусы:
-- сборка дольше, чем PyInstaller
-
-Пример:
+Для CI/релиза (без локальных файлов, строго из снапшота `seed/out`):
 
 ```powershell
-python -m pip install -U nuitka
-python -m nuitka mldsl_cli.py `
-  --standalone `
-  --assume-yes-for-downloads `
-  --output-dir=dist `
-  --output-filename=mldsl.exe
+python packaging\prepare_installer_payload.py --use-seed
 ```
 
-В Inno Setup лучше класть **standalone папку**, а не onefile.
-
-## Вариант B: PyInstaller one-dir
-
-Плюсы:
-- проще/быстрее сборка
-
-Минусы:
-- чаще ложные срабатывания AV
+## 2) Сборка установщика (Inno Setup)
 
 ```powershell
-python -m pip install -U pyinstaller
-pyinstaller --noconfirm --clean --onedir --name mldsl mldsl_cli.py
+iscc installer\MLDSL.iss
 ```
 
-## Важно про ассеты
+Готовый установщик появится в `dist/release/`.
 
-Инсталлер кладёт эти файлы в `{app}\\assets\\`:
+## 3) VSCode расширение (опционально)
 
-- `Aliases.json`
-- `LangTokens.json`
-- `allactions.txt`
+```powershell
+cd tools/mldsl-vscode
+npm ci
+vsce package --no-dependencies -o ../../dist/payload/mldsl-helper.vsix
+```
 
-Компилятор ищет их сначала в репозитории, потом рядом с exe (`assets/`), потом в `%LOCALAPPDATA%\\MLDSL\\assets`.
+Если `dist/payload/mldsl-helper.vsix` существует, установщик предложит авто-установку расширения.
+

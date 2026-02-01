@@ -1,4 +1,7 @@
-out/
+/out/
+seed/out/.DS_Store
+dist/
+installer/Output/
 logs/
 last_crash.txt
 code.json

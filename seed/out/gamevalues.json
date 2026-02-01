@@ -1,0 +1,608 @@
+{
+  "version": 1,
+  "count": 75,
+  "byLocName": {
+    "CURRENT_LOCATION": {
+      "locName": "CURRENT_LOCATION",
+      "display": "Текущее местоположение",
+      "id": "minecraft:paper",
+      "meta": 0,
+      "lore": "Только для игроков"
+    },
+    "CURRENT_EYE_LOCATION": {
+      "locName": "CURRENT_EYE_LOCATION",
+      "display": "Текущее направление взгляда",
+      "id": "minecraft:ender_eye",
+      "meta": 0,
+      "lore": "Получает информацию о нахождении\\nвзгляда игрока в пространстве\\n\\nТолько для игроков и мобов"
+    },
+    "CURRENT_EYE_VIEW": {
+      "locName": "CURRENT_EYE_VIEW",
+      "display": "Направление взгляда",
+      "id": "minecraft:ender_pearl",
+      "meta": 0,
+      "lore": "Получает вектор направления\\nвзгляда цели"
+    },
+    "CURRENT_PLAYER_FACING_VALUE": {
+      "locName": "CURRENT_PLAYER_FACING_VALUE",
+      "display": "Кардинальное направление",
+      "id": "minecraft:compass",
+      "meta": 0,
+      "lore": "Получает сторону света,\\nв которую смотрит игрок"
+    },
+    "TARGET_BLOCK_LOCATION": {
+      "locName": "TARGET_BLOCK_LOCATION",
+      "display": "Местоположение целевого блока",
+      "id": "minecraft:grass",
+      "meta": 0,
+      "lore": "Получает значение локации\\nблока, на который смотрит цель,\\nили целевой блок в событии\\n(если это применимо)."
+    },
+    "TARGET_BLOCK_FACE": {
+      "locName": "TARGET_BLOCK_FACE",
+      "display": "Сторона целевого блока",
+      "id": "minecraft:acacia_stairs",
+      "meta": 0,
+      "lore": "Получает направление стороны\\nблока, на которую смотрит цель"
+    },
+    "CURRENT_BODY_ROTATION": {
+      "locName": "CURRENT_BODY_ROTATION",
+      "display": "Поворот тела",
+      "id": "minecraft:armor_stand",
+      "meta": 0,
+      "lore": "Получает поворот\\nтела цели"
+    },
+    "CURRENT_CENTER_OF_HITBOX": {
+      "locName": "CURRENT_CENTER_OF_HITBOX",
+      "display": "Центр хитбокса",
+      "id": "minecraft:ghast_tear",
+      "meta": 0,
+      "lore": "Получает местоположение\\nцентра хитбокса цели"
+    },
+    "MAIN_HAND_ITEM": {
+      "locName": "MAIN_HAND_ITEM",
+      "display": "Текущий предмет",
+      "id": "minecraft:diamond_sword",
+      "meta": 0,
+      "lore": "Получает текущий предмет\\nкоторый держит сущность"
+    },
+    "OFFHAND_ITEM": {
+      "locName": "OFFHAND_ITEM",
+      "display": "Предмет из второй руки",
+      "id": "minecraft:iron_sword",
+      "meta": 0,
+      "lore": "Получает текущий предмет\\nиз второй руки сущности."
+    },
+    "GET_HELMET_ITEM": {
+      "locName": "GET_HELMET_ITEM",
+      "display": "Получить шлем сущности",
+      "id": "minecraft:golden_helmet",
+      "meta": 0,
+      "lore": "Получает предмет, одетый\\nв слот шлем у сущности"
+    },
+    "GET_CHESTPLATE_ITEM": {
+      "locName": "GET_CHESTPLATE_ITEM",
+      "display": "Получить нагрудник сущности",
+      "id": "minecraft:golden_chestplate",
+      "meta": 0,
+      "lore": "Получает предмет, одетый\\nв слот нагрудника у сущности"
+    },
+    "GET_LEGGINGS_ITEM": {
+      "locName": "GET_LEGGINGS_ITEM",
+      "display": "Получить поножи сущности",
+      "id": "minecraft:golden_leggings",
+      "meta": 0,
+      "lore": "Получает предмет, одетый\\nв слот понож у сущности"
+    },
+    "GET_BOOTS_ITEM": {
+      "locName": "GET_BOOTS_ITEM",
+      "display": "Получить ботинки сущности",
+      "id": "minecraft:golden_boots",
+      "meta": 0,
+      "lore": "Получает предмет, одетый\\nв слот ботинок у сущности"
+    },
+    "CURRENT_HEALTH": {
+      "locName": "CURRENT_HEALTH",
+      "display": "CURRENT_HEALTH",
+      "id": "minecraft:golden_carrot",
+      "meta": 0,
+      "lore": ""
+    },
+    "MAX_HEALTH": {
+      "locName": "MAX_HEALTH",
+      "display": "MAX_HEALTH",
+      "id": "minecraft:bread",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_FOOD_LEVEL": {
+      "locName": "CURRENT_FOOD_LEVEL",
+      "display": "CURRENT_FOOD_LEVEL",
+      "id": "minecraft:cooked_chicken",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_SATURATION_LEVEL": {
+      "locName": "CURRENT_SATURATION_LEVEL",
+      "display": "CURRENT_SATURATION_LEVEL",
+      "id": "minecraft:bowl",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_EXHAUSTION_VALUE": {
+      "locName": "CURRENT_EXHAUSTION_VALUE",
+      "display": "CURRENT_EXHAUSTION_VALUE",
+      "id": "minecraft:experience_bottle",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_XP_LEVEL": {
+      "locName": "CURRENT_XP_LEVEL",
+      "display": "CURRENT_XP_LEVEL",
+      "id": "minecraft:enchanting_table",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_XP": {
+      "locName": "CURRENT_XP",
+      "display": "CURRENT_XP",
+      "id": "minecraft:iron_chestplate",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_ARMOR_POINTS": {
+      "locName": "CURRENT_ARMOR_POINTS",
+      "display": "CURRENT_ARMOR_POINTS",
+      "id": "minecraft:blaze_powder",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_FIRE_TICKS": {
+      "locName": "CURRENT_FIRE_TICKS",
+      "display": "CURRENT_FIRE_TICKS",
+      "id": "minecraft:fish",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_AIR_REMAINING": {
+      "locName": "CURRENT_AIR_REMAINING",
+      "display": "CURRENT_AIR_REMAINING",
+      "id": "minecraft:cooked_fish",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_AIR_MAXIMUM_VALUE": {
+      "locName": "CURRENT_AIR_MAXIMUM_VALUE",
+      "display": "CURRENT_AIR_MAXIMUM_VALUE",
+      "id": "minecraft:repeating_command_block",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_HELD_SLOT": {
+      "locName": "CURRENT_HELD_SLOT",
+      "display": "CURRENT_HELD_SLOT",
+      "id": "minecraft:repeater",
+      "meta": 0,
+      "lore": ""
+    },
+    "PING": {
+      "locName": "PING",
+      "display": "PING",
+      "id": "minecraft:name_tag",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_NAME": {
+      "locName": "CURRENT_NAME",
+      "display": "CURRENT_NAME",
+      "id": "minecraft:minecart",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_ENTITY_TYPE": {
+      "locName": "CURRENT_ENTITY_TYPE",
+      "display": "CURRENT_ENTITY_TYPE",
+      "id": "minecraft:painting",
+      "meta": 0,
+      "lore": ""
+    },
+    "OPEN_INVENTORY_TITLE": {
+      "locName": "OPEN_INVENTORY_TITLE",
+      "display": "OPEN_INVENTORY_TITLE",
+      "id": "minecraft:furnace",
+      "meta": 0,
+      "lore": ""
+    },
+    "OPEN_INVENTORY_TYPE": {
+      "locName": "OPEN_INVENTORY_TYPE",
+      "display": "OPEN_INVENTORY_TYPE",
+      "id": "minecraft:chorus_fruit",
+      "meta": 0,
+      "lore": ""
+    },
+    "OPEN_INVENTORY_SLOTS_VALUE": {
+      "locName": "OPEN_INVENTORY_SLOTS_VALUE",
+      "display": "OPEN_INVENTORY_SLOTS_VALUE",
+      "id": "minecraft:quartz",
+      "meta": 0,
+      "lore": ""
+    },
+    "GET_LOCALE_OF_PLAYER": {
+      "locName": "GET_LOCALE_OF_PLAYER",
+      "display": "GET_LOCALE_OF_PLAYER",
+      "id": "minecraft:iron_nugget",
+      "meta": 0,
+      "lore": ""
+    },
+    "GET_LANGUAGE_OF_PLAYER": {
+      "locName": "GET_LANGUAGE_OF_PLAYER",
+      "display": "GET_LANGUAGE_OF_PLAYER",
+      "id": "minecraft:comparator",
+      "meta": 0,
+      "lore": ""
+    },
+    "GET_VERSION_OF_PLAYER": {
+      "locName": "GET_VERSION_OF_PLAYER",
+      "display": "GET_VERSION_OF_PLAYER",
+      "id": "minecraft:armor_stand",
+      "meta": 0,
+      "lore": ""
+    },
+    "HITBOX_WIDTH": {
+      "locName": "HITBOX_WIDTH",
+      "display": "HITBOX_WIDTH",
+      "id": "minecraft:armor_stand",
+      "meta": 0,
+      "lore": ""
+    },
+    "HITBOX_HEIGHT": {
+      "locName": "HITBOX_HEIGHT",
+      "display": "HITBOX_HEIGHT",
+      "id": "minecraft:armor_stand",
+      "meta": 0,
+      "lore": ""
+    },
+    "HITBOX_LENGTH": {
+      "locName": "HITBOX_LENGTH",
+      "display": "HITBOX_LENGTH",
+      "id": "minecraft:anvil",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_FALL_DISTANCE": {
+      "locName": "CURRENT_FALL_DISTANCE",
+      "display": "CURRENT_FALL_DISTANCE",
+      "id": "",
+      "meta": 0,
+      "lore": ""
+    },
+    "EVENT_DAMAGE": {
+      "locName": "EVENT_DAMAGE",
+      "display": "EVENT_DAMAGE",
+      "id": "minecraft:snowball",
+      "meta": 0,
+      "lore": ""
+    },
+    "CLICKED_SLOT": {
+      "locName": "CLICKED_SLOT",
+      "display": "CLICKED_SLOT",
+      "id": "minecraft:slime_ball",
+      "meta": 0,
+      "lore": ""
+    },
+    "NEW_SLOT": {
+      "locName": "NEW_SLOT",
+      "display": "NEW_SLOT",
+      "id": "",
+      "meta": 0,
+      "lore": ""
+    },
+    "OLD_SLOT": {
+      "locName": "OLD_SLOT",
+      "display": "OLD_SLOT",
+      "id": "",
+      "meta": 0,
+      "lore": ""
+    },
+    "MESSAGE": {
+      "locName": "MESSAGE",
+      "display": "MESSAGE",
+      "id": "minecraft:cobblestone",
+      "meta": 0,
+      "lore": ""
+    },
+    "EVENT_BLOCK_LOCATION": {
+      "locName": "EVENT_BLOCK_LOCATION",
+      "display": "EVENT_BLOCK_LOCATION",
+      "id": "minecraft:wooden_sword",
+      "meta": 0,
+      "lore": ""
+    },
+    "CLICKED_ITEM": {
+      "locName": "CLICKED_ITEM",
+      "display": "CLICKED_ITEM",
+      "id": "minecraft:stone",
+      "meta": 0,
+      "lore": ""
+    },
+    "EVENT_BLOCK_ITEM_VALUE": {
+      "locName": "EVENT_BLOCK_ITEM_VALUE",
+      "display": "EVENT_BLOCK_ITEM_VALUE",
+      "id": "minecraft:fish",
+      "meta": 0,
+      "lore": ""
+    },
+    "GET_FISHING_STATE": {
+      "locName": "GET_FISHING_STATE",
+      "display": "GET_FISHING_STATE",
+      "id": "minecraft:cooked_fish",
+      "meta": 0,
+      "lore": ""
+    },
+    "GET_FISHING_CAUGHT": {
+      "locName": "GET_FISHING_CAUGHT",
+      "display": "GET_FISHING_CAUGHT",
+      "id": "minecraft:spider_eye",
+      "meta": 0,
+      "lore": ""
+    },
+    "GET_DAMAGE_CAUSE": {
+      "locName": "GET_DAMAGE_CAUSE",
+      "display": "GET_DAMAGE_CAUSE",
+      "id": "minecraft:skull",
+      "meta": 0,
+      "lore": ""
+    },
+    "GET_DEATH_CAUSE": {
+      "locName": "GET_DEATH_CAUSE",
+      "display": "GET_DEATH_CAUSE",
+      "id": "minecraft:iron_pickaxe",
+      "meta": 0,
+      "lore": ""
+    },
+    "EVENT_ITEM_VALUE": {
+      "locName": "EVENT_ITEM_VALUE",
+      "display": "EVENT_ITEM_VALUE",
+      "id": "minecraft:golden_hoe",
+      "meta": 0,
+      "lore": ""
+    },
+    "EVENT_ACTION_VALUE": {
+      "locName": "EVENT_ACTION_VALUE",
+      "display": "EVENT_ACTION_VALUE",
+      "id": "minecraft:carrot_on_a_stick",
+      "meta": 0,
+      "lore": ""
+    },
+    "EVENT_CLICK_TYPE": {
+      "locName": "EVENT_CLICK_TYPE",
+      "display": "EVENT_CLICK_TYPE",
+      "id": "minecraft:stone_pickaxe",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_CURSOR_ITEM_VALUE": {
+      "locName": "CURRENT_CURSOR_ITEM_VALUE",
+      "display": "CURRENT_CURSOR_ITEM_VALUE",
+      "id": "minecraft:feather",
+      "meta": 0,
+      "lore": ""
+    },
+    "EVENT_INVENTORY_ACTION": {
+      "locName": "EVENT_INVENTORY_ACTION",
+      "display": "EVENT_INVENTORY_ACTION",
+      "id": "minecraft:brewing_stand",
+      "meta": 0,
+      "lore": ""
+    },
+    "EVENT_SLOT_TYPE": {
+      "locName": "EVENT_SLOT_TYPE",
+      "display": "EVENT_SLOT_TYPE",
+      "id": "minecraft:lingering_potion",
+      "meta": 0,
+      "lore": ""
+    },
+    "EVENT_REGAIN_HEALTH_AMOUNT": {
+      "locName": "EVENT_REGAIN_HEALTH_AMOUNT",
+      "display": "EVENT_REGAIN_HEALTH_AMOUNT",
+      "id": "minecraft:splash_potion",
+      "meta": 0,
+      "lore": ""
+    },
+    "EVENT_REGAIN_HEALTH_REASON": {
+      "locName": "EVENT_REGAIN_HEALTH_REASON",
+      "display": "EVENT_REGAIN_HEALTH_REASON",
+      "id": "minecraft:experience_bottle",
+      "meta": 0,
+      "lore": ""
+    },
+    "EVENT_EXP_AMOUNT": {
+      "locName": "EVENT_EXP_AMOUNT",
+      "display": "EVENT_EXP_AMOUNT",
+      "id": "minecraft:gold_ore",
+      "meta": 0,
+      "lore": ""
+    },
+    "GOLD_TRANSACTION_AMOUNT": {
+      "locName": "GOLD_TRANSACTION_AMOUNT",
+      "display": "GOLD_TRANSACTION_AMOUNT",
+      "id": "minecraft:gold_nugget",
+      "meta": 0,
+      "lore": ""
+    },
+    "GOLD_TRANSACTION_NAME": {
+      "locName": "GOLD_TRANSACTION_NAME",
+      "display": "GOLD_TRANSACTION_NAME",
+      "id": "",
+      "meta": 0,
+      "lore": ""
+    },
+    "GOLD_TRANSACTION_DISPLAY_NAME": {
+      "locName": "GOLD_TRANSACTION_DISPLAY_NAME",
+      "display": "GOLD_TRANSACTION_DISPLAY_NAME",
+      "id": "",
+      "meta": 0,
+      "lore": ""
+    },
+    "SHOP_TRANSACTION_KEY": {
+      "locName": "SHOP_TRANSACTION_KEY",
+      "display": "SHOP_TRANSACTION_KEY",
+      "id": "minecraft:emerald",
+      "meta": 0,
+      "lore": ""
+    },
+    "SHOP_TRANSACTION_DISPLAY_NAME": {
+      "locName": "SHOP_TRANSACTION_DISPLAY_NAME",
+      "display": "SHOP_TRANSACTION_DISPLAY_NAME",
+      "id": "",
+      "meta": 0,
+      "lore": ""
+    },
+    "POINTS_PURCHASE_AMOUNT_VALUE": {
+      "locName": "POINTS_PURCHASE_AMOUNT_VALUE",
+      "display": "POINTS_PURCHASE_AMOUNT_VALUE",
+      "id": "",
+      "meta": 0,
+      "lore": ""
+    },
+    "TOTAL_PLAYER_COUNT": {
+      "locName": "TOTAL_PLAYER_COUNT",
+      "display": "TOTAL_PLAYER_COUNT",
+      "id": "minecraft:gold_nugget",
+      "meta": 0,
+      "lore": ""
+    },
+    "VOTES_COUNT": {
+      "locName": "VOTES_COUNT",
+      "display": "VOTES_COUNT",
+      "id": "minecraft:leather_boots",
+      "meta": 0,
+      "lore": ""
+    },
+    "UNIQUE_JOINS_VALUE": {
+      "locName": "UNIQUE_JOINS_VALUE",
+      "display": "UNIQUE_JOINS_VALUE",
+      "id": "minecraft:prismarine_crystals",
+      "meta": 0,
+      "lore": ""
+    },
+    "VARIABLES_COUNT": {
+      "locName": "VARIABLES_COUNT",
+      "display": "VARIABLES_COUNT",
+      "id": "minecraft:blaze_powder",
+      "meta": 0,
+      "lore": ""
+    },
+    "TOTAL_POINTS_AMOUNT_VALUE": {
+      "locName": "TOTAL_POINTS_AMOUNT_VALUE",
+      "display": "TOTAL_POINTS_AMOUNT_VALUE",
+      "id": "minecraft:clock",
+      "meta": 0,
+      "lore": ""
+    },
+    "CURRENT_TIME": {
+      "locName": "CURRENT_TIME",
+      "display": "CURRENT_TIME",
+      "id": "minecraft:cobblestone",
+      "meta": 0,
+      "lore": ""
+    },
+    "BLOCKS_LIMIT_REMAIN": {
+      "locName": "BLOCKS_LIMIT_REMAIN",
+      "display": "BLOCKS_LIMIT_REMAIN",
+      "id": "",
+      "meta": 0,
+      "lore": ""
+    },
+    "ACTION_COUNTER": {
+      "locName": "ACTION_COUNTER",
+      "display": "ACTION_COUNTER",
+      "id": "minecraft:clay_ball",
+      "meta": 0,
+      "lore": ""
+    },
+    "PLOT_ID": {
+      "locName": "PLOT_ID",
+      "display": "PLOT_ID",
+      "id": "",
+      "meta": 0,
+      "lore": ""
+    }
+  },
+  "byKey": {
+    "текущееместоположение": "CURRENT_LOCATION",
+    "текущеенаправлениевзгляда": "CURRENT_EYE_LOCATION",
+    "направлениевзгляда": "CURRENT_EYE_VIEW",
+    "кардинальноенаправление": "CURRENT_PLAYER_FACING_VALUE",
+    "местоположениецелевогоблока": "TARGET_BLOCK_LOCATION",
+    "сторонацелевогоблока": "TARGET_BLOCK_FACE",
+    "повороттела": "CURRENT_BODY_ROTATION",
+    "центрхитбокса": "CURRENT_CENTER_OF_HITBOX",
+    "текущийпредмет": "MAIN_HAND_ITEM",
+    "предметизвторойруки": "OFFHAND_ITEM",
+    "получитьшлемсущности": "GET_HELMET_ITEM",
+    "получитьнагрудниксущности": "GET_CHESTPLATE_ITEM",
+    "получитьпоножисущности": "GET_LEGGINGS_ITEM",
+    "получитьботинкисущности": "GET_BOOTS_ITEM",
+    "currenthealth": "CURRENT_HEALTH",
+    "maxhealth": "MAX_HEALTH",
+    "currentfoodlevel": "CURRENT_FOOD_LEVEL",
+    "currentsaturationlevel": "CURRENT_SATURATION_LEVEL",
+    "currentexhaustionvalue": "CURRENT_EXHAUSTION_VALUE",
+    "currentxplevel": "CURRENT_XP_LEVEL",
+    "currentxp": "CURRENT_XP",
+    "currentarmorpoints": "CURRENT_ARMOR_POINTS",
+    "currentfireticks": "CURRENT_FIRE_TICKS",
+    "currentairremaining": "CURRENT_AIR_REMAINING",
+    "currentairmaximumvalue": "CURRENT_AIR_MAXIMUM_VALUE",
+    "currentheldslot": "CURRENT_HELD_SLOT",
+    "ping": "PING",
+    "currentname": "CURRENT_NAME",
+    "currententitytype": "CURRENT_ENTITY_TYPE",
+    "openinventorytitle": "OPEN_INVENTORY_TITLE",
+    "openinventorytype": "OPEN_INVENTORY_TYPE",
+    "openinventoryslotsvalue": "OPEN_INVENTORY_SLOTS_VALUE",
+    "getlocaleofplayer": "GET_LOCALE_OF_PLAYER",
+    "getlanguageofplayer": "GET_LANGUAGE_OF_PLAYER",
+    "getversionofplayer": "GET_VERSION_OF_PLAYER",
+    "hitboxwidth": "HITBOX_WIDTH",
+    "hitboxheight": "HITBOX_HEIGHT",
+    "hitboxlength": "HITBOX_LENGTH",
+    "currentfalldistance": "CURRENT_FALL_DISTANCE",
+    "eventdamage": "EVENT_DAMAGE",
+    "clickedslot": "CLICKED_SLOT",
+    "newslot": "NEW_SLOT",
+    "oldslot": "OLD_SLOT",
+    "message": "MESSAGE",
+    "eventblocklocation": "EVENT_BLOCK_LOCATION",
+    "clickeditem": "CLICKED_ITEM",
+    "eventblockitemvalue": "EVENT_BLOCK_ITEM_VALUE",
+    "getfishingstate": "GET_FISHING_STATE",
+    "getfishingcaught": "GET_FISHING_CAUGHT",
+    "getdamagecause": "GET_DAMAGE_CAUSE",
+    "getdeathcause": "GET_DEATH_CAUSE",
+    "eventitemvalue": "EVENT_ITEM_VALUE",
+    "eventactionvalue": "EVENT_ACTION_VALUE",
+    "eventclicktype": "EVENT_CLICK_TYPE",
+    "currentcursoritemvalue": "CURRENT_CURSOR_ITEM_VALUE",
+    "eventinventoryaction": "EVENT_INVENTORY_ACTION",
+    "eventslottype": "EVENT_SLOT_TYPE",
+    "eventregainhealthamount": "EVENT_REGAIN_HEALTH_AMOUNT",
+    "eventregainhealthreason": "EVENT_REGAIN_HEALTH_REASON",
+    "eventexpamount": "EVENT_EXP_AMOUNT",
+    "goldtransactionamount": "GOLD_TRANSACTION_AMOUNT",
+    "goldtransactionname": "GOLD_TRANSACTION_NAME",
+    "goldtransactiondisplayname": "GOLD_TRANSACTION_DISPLAY_NAME",
+    "shoptransactionkey": "SHOP_TRANSACTION_KEY",
+    "shoptransactiondisplayname": "SHOP_TRANSACTION_DISPLAY_NAME",
+    "pointspurchaseamountvalue": "POINTS_PURCHASE_AMOUNT_VALUE",
+    "totalplayercount": "TOTAL_PLAYER_COUNT",
+    "votescount": "VOTES_COUNT",
+    "uniquejoinsvalue": "UNIQUE_JOINS_VALUE",
+    "variablescount": "VARIABLES_COUNT",
+    "totalpointsamountvalue": "TOTAL_POINTS_AMOUNT_VALUE",
+    "currenttime": "CURRENT_TIME",
+    "blockslimitremain": "BLOCKS_LIMIT_REMAIN",
+    "actioncounter": "ACTION_COUNTER",
+    "plotid": "PLOT_ID"
+  }
+}
