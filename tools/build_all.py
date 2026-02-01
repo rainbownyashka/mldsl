@@ -14,10 +14,10 @@ def main() -> int:
 
     run([python, str(repo_root / "tools" / "build_actions_catalog.py")])
     run([python, str(repo_root / "tools" / "build_api_aliases.py")])
+    run([python, str(repo_root / "tools" / "build_gamevalues.py")])
     run([python, str(repo_root / "tools" / "generate_api_docs.py")])
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
