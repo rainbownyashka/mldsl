@@ -2,6 +2,14 @@
 
 В репозитории есть entrypoint `mldsl_cli.py` (команды `build-all`, `compile`, `paths`).
 
+## Быстрый путь (для релиза + инсталлер)
+
+Собирает всё, что нужно Inno Setup (`dist/payload/...`):
+
+```powershell
+python packaging\prepare_installer_payload.py
+```
+
 ## Вариант A (рекомендую): Nuitka standalone
 
 Плюсы:
@@ -46,4 +54,3 @@ pyinstaller --noconfirm --clean --onedir --name mldsl mldsl_cli.py
 - `allactions.txt`
 
 Компилятор ищет их сначала в репозитории, потом рядом с exe (`assets/`), потом в `%LOCALAPPDATA%\\MLDSL\\assets`.
-
