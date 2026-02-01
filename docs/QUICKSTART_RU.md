@@ -1,31 +1,25 @@
 # MLDSL — быстрый старт (RU)
 
-## 1) Собрать API (локально)
+## 0) Что нужно
 
-`python tools/build_all.py`
+- **В игре:** мод BetterCode (MLBetterCode), чтобы выполнять `plan.json` через `/mldsl run`:
+  - https://github.com/rainbownyashka/mlbettercode
+- **На ПК (Windows):** установщик MLDSL из Releases (ставит `mldsl.exe`).
+- **Для удобства:** VS Code (опционально) + расширение **MLDSL Helper** (подсказки/hover/F12).
 
-Это сгенерирует `out/api_aliases.json` и локальные доки в `out/docs/`.
+## 1) Установи MLDSL
 
-## 2) Скомпилировать файл в plan.json
+Скачай и запусти установщик из Releases.
 
-Вариант “печатать в stdout”:
+Рекомендуемые галочки:
 
-`python tools/mldsl_compile.py test.mldsl --print-plan`
+- “Добавить `mldsl` в PATH”
+- “Контекстное меню проводника для `.mldsl`”
+- “Установить расширение VS Code” (если VS Code установлен)
 
-Вариант “записать план” (по умолчанию в `%APPDATA%\\.minecraft\\plan.json`):
+## 2) Создай файл `.mldsl`
 
-`python tools/mldsl_compile.py test.mldsl --plan "%APPDATA%\\.minecraft\\plan.json"`
-
-## 3) Запуск в игре
-
-`/mldsl run "%APPDATA%\\.minecraft\\plan.json"`
-
-Важно: для “печати” нужен мод BetterCode (MLBetterCode):
-- https://github.com/rainbownyashka/mlbettercode
-
-## 4) Минимальные примеры
-
-### Событие
+Пример:
 
 ```mldsl
 event("Вход игрока") {
@@ -33,19 +27,35 @@ event("Вход игрока") {
 }
 ```
 
-### Выборка
+## 3) Скомпилируй в `plan.json`
 
-```mldsl
-select.allplayers {
-    player.message("hi")
-}
+### Вариант A (контекстное меню)
+
+ПКМ по файлу `.mldsl` → “MLDSL: Скомпилировать в plan.json”.
+
+Результат записывается в:
+
+- `%APPDATA%\\.minecraft\\plan.json`
+
+### Вариант B (командой)
+
+```powershell
+mldsl compile test.mldsl --plan "%APPDATA%\\.minecraft\\plan.json"
 ```
 
-### Выдать предметы (через item(...))
+## 4) Запусти в игре
 
-```mldsl
-игрок.выдать_предметы(
-    item("stone", count=3),
-    item("diamond", count=2)
-)
+В Minecraft (в чате):
+
 ```
+/mldsl run "%APPDATA%\.minecraft\plan.json"
+```
+
+## 5) VS Code (подсказки)
+
+Если авто‑установка расширения не сработала:
+
+1) Открой VS Code
+2) Extensions → “Install from VSIX…”
+3) Выбери `mldsl-helper.vsix` (его можно скачать из релиза или собрать локально)
+

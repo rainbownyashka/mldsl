@@ -1,5 +1,7 @@
 #define AppName "MLDSL"
-#define AppVersion "0.1.0"
+#ifndef AppVersion
+  #define AppVersion "0.1.0"
+#endif
 #define AppPublisher "rainbownyashka"
 #define AppExeName "mldsl.exe"
 
@@ -16,6 +18,7 @@ AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 DefaultDirName={autopf}\\{#AppName}
 DisableProgramGroupPage=yes
+PrivilegesRequired=lowest
 OutputDir=..\\dist\\release
 OutputBaseFilename={#AppName}-Setup-{#AppVersion}
 Compression=lzma
@@ -24,9 +27,9 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Tasks]
-Name: "addpath"; Description: "Добавить MLDSL в PATH (чтобы команда `mldsl` работала в любой папке)"; GroupDescription: "Интеграция"; Flags: checkedonce
-Name: "contextmenu"; Description: "Добавить пункт в контекстное меню для .mldsl (компиляция в plan.json)"; GroupDescription: "Интеграция"; Flags: checkedonce
-Name: "vscodeext"; Description: "Установить расширение VS Code (если VS Code найден)"; GroupDescription: "Интеграция"; Flags: checkedonce
+Name: "addpath"; Description: "Добавить MLDSL в PATH (можно вызывать `mldsl` из любой папки)"; GroupDescription: "Опции"; Flags: checkedonce
+Name: "contextmenu"; Description: "Контекстное меню проводника для .mldsl (компиляция в plan.json)"; GroupDescription: "Опции"; Flags: checkedonce
+Name: "vscodeext"; Description: "Установить расширение VS Code (если VS Code найден)"; GroupDescription: "Опции"; Flags: checkedonce
 
 [Files]
 ; App (Nuitka standalone folder)
@@ -51,7 +54,7 @@ Name: "{autoprograms}\\{#AppName}"; Filename: "{app}\\{#AppExeName}"
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Tasks: addpath; Check: NeedsAddPath(ExpandConstant('{app}'))
 
 ; Context menu: compile current .mldsl into %APPDATA%\.minecraft\plan.json
-Root: HKCU; Subkey: "Software\\Classes\\SystemFileAssociations\\.mldsl\\shell\\MLDSL_CompileToPlan"; ValueType: string; ValueName: ""; ValueData: "MLDSL: скомпилировать в plan.json"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\\Classes\\SystemFileAssociations\\.mldsl\\shell\\MLDSL_CompileToPlan"; ValueType: string; ValueName: ""; ValueData: "MLDSL: Скомпилировать в plan.json"; Tasks: contextmenu
 Root: HKCU; Subkey: "Software\\Classes\\SystemFileAssociations\\.mldsl\\shell\\MLDSL_CompileToPlan\\command"; ValueType: string; ValueName: ""; ValueData: """{app}\\{#AppExeName}"" compile ""%%1"" --plan ""{userappdata}\\.minecraft\\plan.json"""; Tasks: contextmenu
 
 [Code]
@@ -90,12 +93,21 @@ begin
     CodeExe := FindVSCodeExe();
     Vsix := ExpandConstant('{tmp}\mldsl-helper.vsix');
     if (CodeExe = '') then begin
-      MsgBox('VS Code не найден. Расширение не установлено.'#13#10 +
-        'Можно установить вручную: Extensions -> Install from VSIX.', mbInformation, MB_OK);
+      MsgBox(
+        'VS Code не найден. Расширение не установлено.'#13#10 +
+        'Можно поставить вручную: Extensions → Install from VSIX.',
+        mbInformation,
+        MB_OK
+      );
       exit;
     end;
     if not FileExists(Vsix) then begin
-      MsgBox('VSIX не найден рядом с инсталлером (mldsl-helper.vsix). Расширение не установлено.', mbInformation, MB_OK);
+      MsgBox(
+        'VSIX файл не найден в установщике (mldsl-helper.vsix).'#13#10 +
+        'Расширение не установлено.',
+        mbInformation,
+        MB_OK
+      );
       exit;
     end;
     Exec(CodeExe, '--install-extension "' + Vsix + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);

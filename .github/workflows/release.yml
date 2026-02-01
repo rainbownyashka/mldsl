@@ -42,7 +42,8 @@ jobs:
 
       - name: Build installer (Inno Setup)
         run: |
-          iscc installer/MLDSL.iss
+          $ver = "${{ github.ref_name }}" -replace '^v',''
+          iscc installer/MLDSL.iss /DAppVersion=$ver
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

@@ -1,30 +1,51 @@
 # MLDSL (RU-first)
 
-MLDSL — DSL/компилятор для Mineland-кодинга (Minecraft), который превращает `.mldsl` в `plan.json` для исполнения модом через `/mldsl run`.
+MLDSL — язык/компилятор для Mineland‑кодинга (Minecraft). Он компилирует `.mldsl` в `plan.json`, который исполняется модом BetterCode командой `/mldsl run`.
 
 ## Документация
 
 - Быстрый старт (RU): `docs/QUICKSTART_RU.md`
 - Полный гайд (RU): `docs/MLDSL_GUIDE_RU.md`
 
-## Печать в игре (нужен мод)
+## Требуется мод в игре
 
-Для исполнения `plan.json` в игре нужен клиентский мод BetterCode (MLBetterCode):
+Исполнение `plan.json` в Minecraft делает мод BetterCode (MLBetterCode):
+
 - https://github.com/rainbownyashka/mlbettercode
 
-## Сборка каталога действий (локально)
+## Установка (Windows)
 
-Каталог действий и автодоки генерируются локально в `out/`:
+Скачай установщик из Releases и запусти. Установщик:
+
+- ставит `mldsl.exe` и нужные ассеты;
+- кладёт seed‑`out/` в `%LOCALAPPDATA%\\MLDSL\\out`, чтобы всё работало сразу;
+- опционально ставит VS Code расширение `MLDSL Helper`.
+
+### Опции установщика
+
+- **Добавить в PATH** — можно вызывать `mldsl` из любой папки.
+- **Контекстное меню проводника** — добавляет пункт для `.mldsl`:
+  - “MLDSL: Скомпилировать в plan.json” → компилирует выбранный файл в `%APPDATA%\\.minecraft\\plan.json`.
+- **Установить расширение VS Code** — если VS Code найден, установщик попытается поставить `.vsix` автоматически.
+
+Если VS Code не установлен — подсказки/hover/autocomplete работать не будут, но компиляция через `mldsl.exe` всё равно доступна.
+
+## Быстрые команды
+
+- Компиляция в `plan.json` (пример):
+  - `mldsl compile test.mldsl --plan "%APPDATA%\\.minecraft\\plan.json"`
+- Запуск в игре:
+  - `/mldsl run "%APPDATA%\\.minecraft\\plan.json"`
+
+## Разработка / пересборка API
+
+Сгенерировать `out/` из локальных экспортов:
 
 - `python tools/build_all.py`
 
-Папка `out/` не коммитится в Git (перегенерируется на машине).
-
-## VSCode
-
-- Расширение: `tools/mldsl-vscode/`
-- Готовый `.vsix` (локальная сборка): `tools/mldsl-vscode/mldsl-helper-0.0.20.vsix`
+В CI/релизах используется снапшот `seed/out/` (см. `seed/README.md`).
 
 ## Лицензия
 
-Некоммерческая (продажа/коммерческое использование запрещены без разрешения) — см. `LICENSE`.
+См. `LICENSE`.
+
