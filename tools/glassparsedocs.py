@@ -1,14 +1,20 @@
 import json
 from pathlib import Path
 
-# Пути
-CATALOG_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\actions_catalog.json")
-API_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\api_aliases.json")
+from mldsl_paths import actions_catalog_path, api_aliases_path, ensure_dirs
+
+CATALOG_PATH = actions_catalog_path()
+API_PATH = api_aliases_path()
 
 def main():
+    ensure_dirs()
     if not CATALOG_PATH.exists() or not API_PATH.exists():
-        print("Ошибка: Не найдены входные файлы json.")
-        return
+        raise FileNotFoundError(
+            "Не найдены входные файлы json (нужно сгенерировать `out/`).\n"
+            f"actions_catalog: {CATALOG_PATH}\n"
+            f"api_aliases: {API_PATH}\n"
+            "Запусти: python tools/build_all.py"
+        )
 
     print("Загрузка данных...")
     with open(CATALOG_PATH, 'r', encoding='utf-8') as f:

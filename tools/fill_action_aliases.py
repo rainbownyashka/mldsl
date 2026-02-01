@@ -2,8 +2,10 @@ import json
 import re
 from pathlib import Path
 
-CATALOG_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\actions_catalog.json")
-ALIASES_OUT = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\action_aliases.json")
+from mldsl_paths import action_aliases_path, actions_catalog_path, ensure_dirs
+
+CATALOG_PATH = actions_catalog_path()
+ALIASES_OUT = action_aliases_path()
 
 
 def strip_colors(text: str) -> str:
@@ -143,6 +145,13 @@ def build_enums(action: dict) -> list[dict]:
 
 
 def main():
+    ensure_dirs()
+    if not CATALOG_PATH.exists():
+        raise FileNotFoundError(
+            "Не найден `actions_catalog.json`.\n"
+            f"Путь: {CATALOG_PATH}\n"
+            "Сначала запусти: python tools/build_actions_catalog.py"
+        )
     catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
 
     aliases: dict[str, dict[str, dict]] = {}
@@ -175,4 +184,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

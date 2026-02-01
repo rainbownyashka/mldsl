@@ -2,9 +2,11 @@ import json
 import re
 from pathlib import Path
 
-EXPORT_PATH = Path(r"C:\Users\ASUS\AppData\Roaming\.minecraft\regallactions_export.txt")
-ALIASES_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\src\assets\Aliases.json")
-OUT_PATH = Path(r"C:\Users\ASUS\Documents\regallactions_args.json")
+from mldsl_paths import default_minecraft_export_path, ensure_dirs, out_dir, aliases_json_path
+
+EXPORT_PATH = default_minecraft_export_path()
+ALIASES_PATH = aliases_json_path()
+OUT_PATH = out_dir() / "regallactions_args.json"
 
 GLASS_ID = "minecraft:stained_glass_pane"
 
@@ -241,6 +243,13 @@ def extract_enums(record: dict):
 
 
 def main():
+    ensure_dirs()
+    if not EXPORT_PATH.exists():
+        raise FileNotFoundError(
+            "Не найден `regallactions_export.txt`.\n"
+            f"Ожидаемый путь: {EXPORT_PATH}\n"
+            "Положи экспорт в `.minecraft/regallactions_export.txt` или укажи `MLDSL_REGALLACTIONS_EXPORT`."
+        )
     text = read_text_utf8(EXPORT_PATH)
     aliases = load_aliases(ALIASES_PATH)
     records = []

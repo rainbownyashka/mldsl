@@ -4,9 +4,19 @@ import argparse
 import ast
 from pathlib import Path
 
-API_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\api_aliases.json")
-ALIASES_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\src\assets\Aliases.json")
-ALLACTIONS_PATH = Path(r"C:\Users\ASUS\Documents\allactions.txt")
+from mldsl_paths import (
+    actions_catalog_path,
+    aliases_json_path,
+    api_aliases_path,
+    allactions_txt_path,
+    ensure_dirs,
+    gamevalues_path,
+)
+
+API_PATH = api_aliases_path()
+ALIASES_PATH = aliases_json_path()
+ALLACTIONS_PATH = allactions_txt_path()
+GAMEVALUES_PATH = gamevalues_path()
 MAX_CMD_LEN = 240
 
 # Internal stacks for function args/returns. Names must be rare to avoid clashing with user variables in the world.
@@ -36,7 +46,7 @@ def load_known_events() -> dict:
     - menuName: clickable GUI item title
     - expectedSign2: sign text used for skip-check
     """
-    p = API_PATH.parent / "actions_catalog.json"
+    p = actions_catalog_path()
     if not p.exists():
         return {}
     try:
@@ -67,7 +77,98 @@ def load_known_events() -> dict:
 
 
 def load_api():
+    ensure_dirs()
+    if not API_PATH.exists():
+        raise FileNotFoundError(
+            f"Не найден API файл: {API_PATH}\n"
+            "Сначала сгенерируй `out/` (api_aliases.json + docs), например:\n"
+            "  python tools/build_all.py\n"
+            "Или укажи MLDSL_DATA_DIR/MLDSL_PORTABLE если используешь portable установку."
+        )
     return json.loads(API_PATH.read_text(encoding="utf-8"))
+
+_gamevalues_cache = None
+
+
+def load_gamevalues() -> dict:
+    global _gamevalues_cache
+    if _gamevalues_cache is not None:
+        return _gamevalues_cache
+    if not GAMEVALUES_PATH.exists():
+        _gamevalues_cache = {}
+        return _gamevalues_cache
+    try:
+        _gamevalues_cache = json.loads(GAMEVALUES_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        _gamevalues_cache = {}
+    return _gamevalues_cache
+
+
+def resolve_gamevalue_token(token: str) -> str | None:
+    """
+    Resolves gamevalue tokens to LocName. Supports:
+    - gamevalue.CURRENT_HEALTH
+    - gamevalue.Текущее_здоровье (uses out/gamevalues.json byKey)
+    - gamevalue("CURRENT_HEALTH") / gamevalue("Текущее здоровье")
+    - яблоко.<...> / игровое_значение.<...> / gameval.<...>
+    Returns LocName or None.
+    """
+    s = (token or "").strip()
+    if not s:
+        return None
+    prefixes = (
+        "gamevalue",
+        "gameval",
+        "gamevalue",
+        "apple",
+        "яблоко",
+        "игровое_значение",
+        "игровоезначение",
+        "gamevalue",
+    )
+
+    m_call = re.match(r"^([a-zA-Z_\u0400-\u04FF]+)\s*\(\s*(.+?)\s*\)\s*$", s)
+    if m_call:
+        head = (m_call.group(1) or "").strip().lower()
+        inner = (m_call.group(2) or "").strip()
+        if head in prefixes:
+            if (inner.startswith('"') and inner.endswith('"')) or (inner.startswith("'") and inner.endswith("'")):
+                inner = inner[1:-1]
+            s = inner
+        else:
+            return None
+    else:
+        m_dot = re.match(r"^([a-zA-Z_\u0400-\u04FF]+)\.(.+)$", s)
+        if m_dot:
+            head = (m_dot.group(1) or "").strip().lower()
+            if head not in prefixes:
+                return None
+            # allow gamevalue.category.value -> take last segment
+            s = (m_dot.group(2) or "").split(".")[-1].strip()
+        else:
+            return None
+
+    # direct LocName
+    if re.match(r"^[A-Z0-9_]+$", s):
+        return s
+
+    # lookup by human name
+    gv = load_gamevalues()
+    by_key = gv.get("byKey") if isinstance(gv, dict) else None
+    if isinstance(by_key, dict):
+        key = norm_key(s)
+        loc = by_key.get(key)
+        if isinstance(loc, str) and loc:
+            return loc
+    return None
+
+
+def maybe_wrap_gamevalue(token: str) -> str | None:
+    loc = resolve_gamevalue_token(token)
+    if loc:
+        return f"apple({loc})"
+    return None
+
 
 def strip_colors(text: str) -> str:
     if not text:
@@ -306,12 +407,18 @@ def parse_call_args(arg_str: str):
             k, v = eq
             v = v.strip()
             if len(v) >= 2 and v.startswith('"') and v.endswith('"'):
-                v = v[1:-1]
+                inner = v[1:-1]
+                # Preserve explicit whitespace-only values (e.g. `" "` for enum shorthands like separator).
+                if inner.strip() == "":
+                    v = v
+                else:
+                    v = inner
             kv[k.strip()] = v
         else:
             v = p.strip()
             if len(v) >= 2 and v.startswith('"') and v.endswith('"'):
-                v = v[1:-1]
+                inner = v[1:-1]
+                v = v if inner.strip() == "" else inner
             pos.append(v)
     return kv, pos
 
@@ -319,6 +426,9 @@ def wrap_value(mode: str | None, value: str) -> str:
     v = (value or "").strip()
     if not v:
         return v
+    gv = maybe_wrap_gamevalue(v)
+    if gv:
+        return gv
     # Keep only known wrapper forms; everything else that looks like a call is NOT executable on server.
     m_wrap = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(.*\)\s*$", v)
     if m_wrap:
@@ -333,6 +443,10 @@ def wrap_value(mode: str | None, value: str) -> str:
             "array",
             "loc",
             "apple",
+            "gamevalue",
+            "gameval",
+            "игровое_значение",
+            "яблоко",
             "item",
         }
         if head in allowed:
@@ -732,6 +846,23 @@ def compile_line(api: dict, line: str):
     pieces = []
     params = spec.get("params") or []
 
+    def _is_fill_region_action(_module: str, _spec: dict) -> bool:
+        if (_module or "").strip().lower() != "game":
+            return False
+        s2 = strip_colors(_spec.get("sign2", "")).strip().lower()
+        return s2 == "заполнить область"
+
+    # Action sugar: "Заполнить область" (fill region with blocks)
+    # API param list is usually: value(ANY), loc(LOCATION), loc2(LOCATION), num(NUMBER)
+    # In practice, `value` is a block item placed into the yellow "item/block" glass slot.
+    if _is_fill_region_action(module, spec):
+        # Allow friendlier keyword aliases for the block argument.
+        if "value" not in kv:
+            for k in ("block", "blok", "блок", "block_id", "id", "item", "предмет"):
+                if k in kv and kv[k]:
+                    kv["value"] = kv[k]
+                    break
+
     # Heuristic: "Выдать предметы" takes items from a chest, but the GUI has no marker glass.
     # Allow: player.выдать_предметы(item(stone), количество=3) -> slot(0)=item(stone,count=3)
     if not params:
@@ -771,7 +902,11 @@ def compile_line(api: dict, line: str):
         name = p["name"]
         if name not in kv:
             continue
-        val = wrap_value(p.get("mode"), kv[name])
+        # Special-case: fill-region expects a block item in ANY slot; wrap raw ids to item(...)
+        if _is_fill_region_action(module, spec) and (name == "value" or p.get("slot") == 13):
+            val = _wrap_item_token(kv[name])
+        else:
+            val = wrap_value(p.get("mode"), kv[name])
         pieces.append(f"slot({p['slot']})={val}")
 
     def _unquote_preserve_spaces(v: str) -> str:
@@ -783,31 +918,64 @@ def compile_line(api: dict, line: str):
 
     def _norm_enum_value(v: str) -> str:
         # ignore spaces/punctuation/case for matching; keep RU letters
-        s = strip_colors(v or "").lower()
+        s = strip_colors(v or "").casefold()
+        s = s.replace("ё", "е")
         s = re.sub(r"[\s_\\-]+", "", s)
         s = re.sub(r"[\"'`]+", "", s)
+        s = re.sub(r"[.,:;()\\[\\]{}<>|]+", "", s)
         return s
 
     def _resolve_separator_shorthand(raw_val: str, opts: dict[str, int]) -> int | None:
         # Common server enums: no separator / space / newline.
-        rv = raw_val
-        if rv in ("", None):
-            # Prefer "Без разделения"
+        # Accept human shorthands: "", " ", "\\n", "newline", "пробел", "новая строка", etc.
+        def find_by_contains(*needles: str) -> int | None:
+            norm_needles = [_norm_enum_value(n) for n in needles if n is not None]
             for k, c in opts.items():
-                lk = strip_colors(k).lower()
-                if "без" in lk and "раздел" in lk:
+                nk = _norm_enum_value(k)
+                if all(n in nk for n in norm_needles):
                     return c
+            return None
+
+        rv = "" if raw_val is None else str(raw_val)
+        rv_norm = _norm_enum_value(rv)
+
+        # space
+        if rv == " " or rv_norm in ("space", "пробел", "разделениепробелом"):
+            v = find_by_contains("пробел")
+            if v is not None:
+                return v
+            return find_by_contains("space")
+
+        # newline
+        if rv in ("\\n", "\n") or rv_norm in (
+            "newline",
+            "new_line",
+            "line",
+            "строка",
+            "новаястрока",
+            "разделениеновойстрокой",
+        ):
+            v = find_by_contains("нов", "строк")
+            if v is not None:
+                return v
+            v = find_by_contains("нов", "строч")
+            if v is not None:
+                return v
+            v = find_by_contains("перенос", "строк")
+            if v is not None:
+                return v
+            return find_by_contains("newline")
+
+        # none / empty
+        if rv_norm in ("", "none", "noseparator", "без", "безразделения"):
+            v = find_by_contains("без", "раздел")
+            if v is not None:
+                return v
+            v = find_by_contains("no", "separator")
+            if v is not None:
+                return v
             return 0 if opts else None
-        if rv == " ":
-            for k, c in opts.items():
-                lk = strip_colors(k).lower()
-                if "проб" in lk:
-                    return c
-        if rv in ("\\n", "\n", "newline", "line", "new_line"):
-            for k, c in opts.items():
-                lk = strip_colors(k).lower()
-                if ("нов" in lk and "строк" in lk) or "newline" in lk:
-                    return c
+
         return None
 
     # enum sugar: if key matches enum name, convert to clicks(slot,n)
@@ -829,8 +997,39 @@ def compile_line(api: dict, line: str):
                 clicks = _resolve_separator_shorthand(raw_val, opts)
                 if clicks is None:
                     # fuzzy (ignore spaces/case)
-                    norm_map = {_norm_enum_value(k): v for k, v in opts.items()}
-                    clicks = norm_map.get(_norm_enum_value(raw_val))
+                    import difflib
+
+                    norm_map: dict[str, int] = {}
+                    norm_to_key: dict[str, str] = {}
+                    for k, v in opts.items():
+                        nk = _norm_enum_value(k)
+                        norm_map[nk] = v
+                        norm_to_key[nk] = k
+
+                    raw_norm = _norm_enum_value(raw_val)
+                    clicks = norm_map.get(raw_norm)
+
+                    # prefix/contains match (conservative): only if unique
+                    if clicks is None and raw_norm and len(raw_norm) >= 4:
+                        hits = [nk for nk in norm_map.keys() if nk.startswith(raw_norm) or raw_norm in nk]
+                        if len(hits) == 1:
+                            fixed = hits[0]
+                            clicks = norm_map[fixed]
+                            print(
+                                f"[warn] enum `{ename}`: исправлено `{raw_val}` -> `{norm_to_key.get(fixed, fixed)}`",
+                                file=__import__('sys').stderr,
+                            )
+
+                    # close match (still conservative)
+                    if clicks is None and raw_norm and len(raw_norm) >= 4:
+                        best = difflib.get_close_matches(raw_norm, list(norm_map.keys()), n=1, cutoff=0.92)
+                        if best:
+                            fixed = best[0]
+                            clicks = norm_map[fixed]
+                            print(
+                                f"[warn] enum `{ename}`: исправлено `{raw_val}` -> `{norm_to_key.get(fixed, fixed)}`",
+                                file=__import__('sys').stderr,
+                            )
         if clicks is None:
             # allow numeric
             try:
@@ -892,8 +1091,11 @@ def compile_builtin(api: dict, line: str, func_sigs: dict[str, list[str]] | None
             s = (token or "").strip()
             if not s:
                 return "text()"
+            gv = maybe_wrap_gamevalue(s)
+            if gv:
+                return gv
             # keep explicit wrappers
-            if re.match(r"^(?:text|num|var|var_save|arr|arr_save|loc|item)\s*\(.*\)\s*$", s, re.I):
+            if re.match(r"^(?:text|num|var|var_save|arr|arr_save|loc|item|apple)\s*\(.*\)\s*$", s, re.I):
                 return s
             # quoted string
             if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):

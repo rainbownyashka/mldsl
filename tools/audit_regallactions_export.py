@@ -2,8 +2,10 @@ import json
 import re
 from pathlib import Path
 
-EXPORT = Path(r"C:\Users\ASUS\AppData\Roaming\.minecraft\regallactions_export.txt")
-OUT_JSON = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\export_audit.json")
+from mldsl_paths import default_minecraft_export_path, ensure_dirs, export_audit_path
+
+EXPORT = default_minecraft_export_path()
+OUT_JSON = export_audit_path()
 
 GLASS = "minecraft:stained_glass_pane"
 ITEM_RE = re.compile(r"^item=slot\s+(\d+):\s+\[([^\s]+)\s+meta=(\d+)\]\s+(.*)$")
@@ -69,6 +71,13 @@ def parse_records(text: str):
 
 
 def main():
+    ensure_dirs()
+    if not EXPORT.exists():
+        raise SystemExit(
+            "Не найден `regallactions_export.txt`.\n"
+            f"Ожидаемый путь: {EXPORT}\n"
+            "Положи экспорт в `.minecraft/regallactions_export.txt` или укажи `MLDSL_REGALLACTIONS_EXPORT`."
+        )
     text = read_text_utf8(EXPORT)
     records = parse_records(text)
     out = {

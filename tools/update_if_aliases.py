@@ -4,6 +4,8 @@
 import json
 from pathlib import Path
 
+from mldsl_paths import api_aliases_path as _api_aliases_path, ensure_dirs, lang_tokens_path as _lang_tokens_path
+
 def strip_colors(text: str) -> str:
     import re
     if not text:
@@ -13,14 +15,20 @@ def strip_colors(text: str) -> str:
     return text
 
 def update_if_aliases():
+    ensure_dirs()
     # Загружаем LangTokens.json
-    lang_tokens_path = Path(r"C:\Users\ASUS\Documents\mlctmodified\src\assets\LangTokens.json")
-    with open(lang_tokens_path, 'r', encoding='utf-8') as f:
+    lang_tokens_path = _lang_tokens_path()
+    with open(lang_tokens_path, "r", encoding="utf-8") as f:
         lang_data = json.load(f)
     
     # Загружаем api_aliases.json
-    api_aliases_path = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\api_aliases.json")
-    with open(api_aliases_path, 'r', encoding='utf-8') as f:
+    api_aliases_path = _api_aliases_path()
+    if not api_aliases_path.exists():
+        raise FileNotFoundError(
+            f"Не найден `api_aliases.json`: {api_aliases_path}\n"
+            "Сначала запусти: python tools/build_api_aliases.py"
+        )
+    with open(api_aliases_path, "r", encoding="utf-8") as f:
         api_data = json.load(f)
     
     # Функция для преобразования параметров

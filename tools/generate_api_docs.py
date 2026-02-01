@@ -2,9 +2,15 @@ import json
 import os
 from pathlib import Path
 
-API_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\api_aliases.json")
-OUT_DIR = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\docs")
-CATALOG_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\actions_catalog.json")
+from _bootstrap import ensure_repo_root_on_syspath
+
+ensure_repo_root_on_syspath()
+
+from mldsl_paths import actions_catalog_path, api_aliases_path, docs_dir
+
+API_PATH = api_aliases_path()
+OUT_DIR = docs_dir()
+CATALOG_PATH = actions_catalog_path()
 
 
 def md_escape(text: str) -> str:

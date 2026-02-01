@@ -2,14 +2,27 @@ import json
 from pathlib import Path
 import importlib.util
 
-EXPORT_PATH = Path(r"C:\Users\ASUS\AppData\Roaming\.minecraft\regallactions_export.txt")
-ALIASES_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\src\assets\Aliases.json")
-OUT_CATALOG = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\actions_catalog.json")
-OUT_ALIASES = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\action_aliases.json")
-OUT_DOCS = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\language_quickstart.md")
+from _bootstrap import ensure_repo_root_on_syspath
+
+ensure_repo_root_on_syspath()
+
+from mldsl_paths import (
+    action_aliases_path,
+    actions_catalog_path,
+    aliases_json_path,
+    default_minecraft_export_path,
+    ensure_dirs,
+    language_quickstart_path,
+)
 
 
-TOOLS_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\tools\extract_regallactions_args.py")
+EXPORT_PATH = default_minecraft_export_path()
+ALIASES_PATH = aliases_json_path()
+OUT_CATALOG = actions_catalog_path()
+OUT_ALIASES = action_aliases_path()
+OUT_DOCS = language_quickstart_path()
+
+TOOLS_PATH = Path(__file__).resolve().parent / "extract_regallactions_args.py"
 
 def load_module(path: Path):
     spec = importlib.util.spec_from_file_location("extract_regallactions_args", path)
@@ -27,6 +40,15 @@ def build_action_id(mod, record: dict, aliases: dict) -> str:
     return key
 
 def main():
+    ensure_dirs()
+    if not EXPORT_PATH.exists():
+        raise FileNotFoundError(
+            "Не найден `regallactions_export.txt`.\n"
+            f"Ожидаемый путь: {EXPORT_PATH}\n"
+            "\n"
+            "Скопируй экспорт в `.minecraft/regallactions_export.txt` или укажи путь через:\n"
+            "  MLDSL_REGALLACTIONS_EXPORT=<путь>\n"
+        )
     mod = load_module(TOOLS_PATH)
     aliases = mod.load_aliases(ALIASES_PATH)
     lines = read_export_lines(EXPORT_PATH)

@@ -2,8 +2,10 @@ import json
 import re
 from pathlib import Path
 
-CATALOG_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\actions_catalog.json")
-OUT_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\tools\action_translations_by_id.json")
+from mldsl_paths import action_translations_by_id_path, actions_catalog_path, ensure_dirs
+
+CATALOG_PATH = actions_catalog_path()
+OUT_PATH = action_translations_by_id_path()
 
 
 def strip_colors(text: str) -> str:
@@ -137,6 +139,13 @@ def translate_name(sign2_or_gui: str) -> str:
 
 
 def main():
+    ensure_dirs()
+    if not CATALOG_PATH.exists():
+        raise FileNotFoundError(
+            "Не найден `actions_catalog.json`.\n"
+            f"Путь: {CATALOG_PATH}\n"
+            "Сначала запусти: python tools/build_actions_catalog.py"
+        )
     catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
 
     out = {}
@@ -169,4 +178,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

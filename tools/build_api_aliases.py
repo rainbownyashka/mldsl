@@ -2,10 +2,22 @@ import json
 import re
 from pathlib import Path
 
-CATALOG_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\actions_catalog.json")
-OUT_API = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\api_aliases.json")
-TRANSLATIONS_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\tools\action_translations.json")
-TRANSLATIONS_BY_ID_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\tools\action_translations_by_id.json")
+from _bootstrap import ensure_repo_root_on_syspath
+
+ensure_repo_root_on_syspath()
+
+from mldsl_paths import (
+    action_translations_by_id_path,
+    action_translations_path,
+    actions_catalog_path,
+    api_aliases_path,
+    ensure_dirs,
+)
+
+CATALOG_PATH = actions_catalog_path()
+OUT_API = api_aliases_path()
+TRANSLATIONS_PATH = action_translations_path()
+TRANSLATIONS_BY_ID_PATH = action_translations_by_id_path()
 
 
 def strip_colors(text: str) -> str:
@@ -286,7 +298,40 @@ def build_params_fallback(sign1: str, sign2: str) -> list[dict] | None:
             for i, slot in enumerate(slots)
         ]
 
+    # Game action: "Заполнить область" (Fill region with blocks)
+    # In some exports, the chest snapshot is missing the yellow block/item input.
+    # Provide a stable mapping matching the in-game GUI:
+    # - value (ANY) at slot 13 (yellow glass marker)
+    # - loc (LOCATION) at slot 19
+    # - loc2 (LOCATION) at slot 25
+    # - num (NUMBER) at slot 40 (mode/meta)
+    if s1 == "игровое действие" and s2 == "заполнить область":
+        return [
+            {"name": "value", "mode": "ANY", "slot": 13},
+            {"name": "loc", "mode": "LOCATION", "slot": 19},
+            {"name": "loc2", "mode": "LOCATION", "slot": 25},
+            {"name": "num", "mode": "NUMBER", "slot": 40},
+        ]
+
     return None
+
+
+def merge_params(primary: list[dict], extra: list[dict]) -> list[dict]:
+    """
+    Merge `extra` params into `primary` without duplicating by slot.
+    Used when export snapshots missed some marker glass, but we still want stable slots.
+    """
+    out = list(primary or [])
+    seen_slots = {p.get("slot") for p in out if isinstance(p, dict)}
+    for p in extra or []:
+        if not isinstance(p, dict):
+            continue
+        slot = p.get("slot")
+        if slot in seen_slots:
+            continue
+        out.append(p)
+        seen_slots.add(slot)
+    return out
 
 
 def guess_enum_name(enum_item: dict) -> str:
@@ -370,6 +415,15 @@ def build_enums(action: dict) -> list[dict]:
 
 
 def main():
+    ensure_dirs()
+    if not CATALOG_PATH.exists():
+        raise FileNotFoundError(
+            "Не найден `actions_catalog.json`.\n"
+            f"Путь: {CATALOG_PATH}\n"
+            "\n"
+            "Сначала запусти:\n"
+            "  python tools/build_actions_catalog.py\n"
+        )
     catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     api: dict[str, dict[str, dict]] = {}
     collisions: dict[str, int] = {}
@@ -445,7 +499,10 @@ def main():
             ),
             "description": extract_description(action),
             "descriptionRaw": extract_description_raw(action),
-            "params": (build_params(action) or (build_params_fallback(sign1, sign2) or [])),
+            "params": merge_params(
+                build_params(action) or [],
+                build_params_fallback(sign1, sign2) or [],
+            ),
             "enums": build_enums(action),
         }
 

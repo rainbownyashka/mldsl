@@ -2,9 +2,10 @@ import json
 import re
 from pathlib import Path
 
-# ПУТИ
-CATALOG_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\actions_catalog.json")
-API_OUT_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\api_aliases.json")
+from mldsl_paths import actions_catalog_path, api_aliases_path
+
+CATALOG_PATH = actions_catalog_path()
+API_OUT_PATH = api_aliases_path()
 
 # СИСТЕМНЫЕ СВЯЗКИ (Поиск по имени предмета)
 CORE_LOGIC = {

@@ -13,7 +13,7 @@ def norm_key(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip().lower()
     return text
 
-ALLACTIONS_PATH = Path(r"C:\Users\ASUS\Documents\allactions.txt")
+ALLACTIONS_PATH = Path(__file__).resolve().parents[1] / "allactions.txt"
 text = ALLACTIONS_PATH.read_text(encoding="utf-8", errors="replace")
 
 # Ищем все вхождения "Если игрок"

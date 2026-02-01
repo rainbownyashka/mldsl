@@ -2,7 +2,7 @@
   "name": "mldsl-helper",
   "displayName": "MLDSL Helper",
   "description": "Completion/hover/definition for MLDSL based on generated api_aliases.json",
-  "version": "0.0.20",
+  "version": "0.0.22",
   "publisher": "local",
   "engines": {
     "vscode": "^1.80.0"
@@ -46,13 +46,13 @@
       "properties": {
         "mldsl.apiAliasesPath": {
           "type": "string",
-          "default": "C:\\\\Users\\\\ASUS\\\\Documents\\\\mlctmodified\\\\out\\\\api_aliases.json",
-          "description": "Path to generated api_aliases.json"
+          "default": "",
+          "description": "Path to generated api_aliases.json (leave empty to auto-detect)"
         },
         "mldsl.docsRoot": {
           "type": "string",
-          "default": "C:\\\\Users\\\\ASUS\\\\Documents\\\\mlctmodified\\\\out\\\\docs",
-          "description": "Root folder with generated markdown docs"
+          "default": "",
+          "description": "Root folder with generated markdown docs (leave empty to auto-detect)"
         },
         "mldsl.pythonPath": {
           "type": "string",

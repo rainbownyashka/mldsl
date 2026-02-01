@@ -15,7 +15,7 @@ def norm_key(text: str) -> str:
     return text
 
 def load_allactions_map() -> dict:
-    ALLACTIONS_PATH = Path(r"C:\Users\ASUS\Documents\allactions.txt")
+    ALLACTIONS_PATH = Path(__file__).resolve().parents[1] / "allactions.txt"
     if not ALLACTIONS_PATH.exists():
         return {}
     text = ALLACTIONS_PATH.read_text(encoding="utf-8", errors="replace")

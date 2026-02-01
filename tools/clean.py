@@ -2,10 +2,11 @@ import json
 import re
 from pathlib import Path
 
-# Пути
-LANG_TOKENS_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\src\assets\LangTokens.json")
-CATALOG_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\actions_catalog.json")
-API_OUT_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\api_aliases.json")
+from mldsl_paths import actions_catalog_path, api_aliases_path, ensure_dirs, lang_tokens_path
+
+LANG_TOKENS_PATH = lang_tokens_path()
+CATALOG_PATH = actions_catalog_path()
+API_OUT_PATH = api_aliases_path()
 
 # Расширенный словарь для перевода имен, которые трудно перевести транслитом
 # (Английский ключ, который ты хочешь -> Точный текст на русском в игре)
@@ -82,9 +83,13 @@ def get_english_key(gui_name: str) -> str:
     return to_snake_case(clean_gui)
 
 def main():
+    ensure_dirs()
     if not CATALOG_PATH.exists():
-        print("Каталог не найден!")
-        return
+        raise FileNotFoundError(
+            "Не найден `actions_catalog.json`.\n"
+            f"Путь: {CATALOG_PATH}\n"
+            "Сначала запусти: python tools/build_actions_catalog.py"
+        )
 
     # Загружаем файлы
     with open(CATALOG_PATH, 'r', encoding='utf-8') as f:

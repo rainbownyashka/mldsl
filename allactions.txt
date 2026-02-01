@@ -1,13 +1,17 @@
-((minecraft:stained_glass_pane meta=0) Если игрок)
-((minecraft:stained_glass_pane meta=1) Действие игрока)
-((minecraft:stained_glass_pane meta=2) Игровое действие)
-((minecraft:stained_glass_pane meta=3) Выбрать объект)
-((minecraft:stained_glass_pane meta=4) Массив)
-((minecraft:stained_glass_pane meta=5) Переменная)
-((minecraft:stained_glass_pane meta=6) Если значение)
-((minecraft:stained_glass_pane meta=7) Если игра)
-((minecraft:stained_glass_pane meta=8) Если существо)
-((minecraft:stained_glass_pane meta=9) Событие игрока)
-((minecraft:stained_glass_pane meta=10) Событие мира)
-((minecraft:stained_glass_pane meta=11) Функция)
-((minecraft:stained_glass_pane meta=12) Цикл)
+[(minecraft:diamond_block) Событие игрока]
+[(minecraft:gold_block) Событие мира]
+[(minecraft:lapis_block) Функция]
+[(minecraft:emerald_block) Блок цикла]
+
+[(minecraft:cobblestone) Действие игрока]
+[(minecraft:nether_brick) Игровое действие]
+[(minecraft:bookshelf) Работа с массивами]
+[(minecraft:purpur_block) Выбрать объект]
+[(minecraft:lapis_ore) Вызвать функцию]
+[(minecraft:iron_block) Установить переменную]
+
+[(minecraft:planks) Если игрок]
+[(minecraft:red_nether_brick) Если игра]
+[(minecraft:brick_block) Если существо]
+[(minecraft:obsidian) Если значение]
+[(minecraft:end_stone) Иначе]

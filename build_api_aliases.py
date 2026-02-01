@@ -2,10 +2,18 @@ import json
 import re
 from pathlib import Path
 
-CATALOG_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\actions_catalog.json")
-OUT_API = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\api_aliases.json")
-TRANSLATIONS_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\tools\action_translations.json")
-TRANSLATIONS_BY_ID_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\tools\action_translations_by_id.json")
+from mldsl_paths import (
+    action_translations_by_id_path,
+    action_translations_path,
+    actions_catalog_path,
+    api_aliases_path,
+    ensure_dirs,
+)
+
+CATALOG_PATH = actions_catalog_path()
+OUT_API = api_aliases_path()
+TRANSLATIONS_PATH = action_translations_path()
+TRANSLATIONS_BY_ID_PATH = action_translations_by_id_path()
 
 
 def strip_colors(text: str) -> str:
@@ -256,16 +264,80 @@ def guess_param_base(arg: dict) -> str:
     return mode or "arg"
 
 
+def guess_param_base_v2(arg: dict) -> str:
+    """
+    Prefer using the extracted `mode` instead of brittle glass-name heuristics.
+
+    Glass names in the export can be garbled depending on encoding, while `mode`
+    is derived from the glass meta + GUI layout.
+    """
+    name = strip_colors(arg.get("glassName", "")).lower()
+    mode = (arg.get("mode") or "").lower()
+
+    if "блок" in name:
+        return "block"
+    if "предмет" in name:
+        return "item"
+
+    if mode == "variable":
+        return "var"
+    if mode == "text":
+        return "text"
+    if mode == "number":
+        return "num"
+    if mode == "location":
+        return "loc"
+    if mode == "array":
+        return "arr"
+    if mode == "item":
+        return "item"
+    if mode == "any":
+        return "value"
+    return mode or "arg"
+
+
 def build_params(action: dict) -> list[dict]:
     params = []
     used = {}
     for arg in action.get("args", []):
-        base = guess_param_base(arg)
+        base = guess_param_base_v2(arg)
         used.setdefault(base, 0)
         used[base] += 1
         name = base if used[base] == 1 else f"{base}{used[base]}"
         params.append({"name": name, "mode": arg.get("mode"), "slot": arg.get("argSlot")})
     return params
+
+
+def merge_params(primary: list[dict] | None, extra: list[dict] | None, *, overwrite: bool = False) -> list[dict]:
+    """
+    Merge two param lists by param `name`.
+    - If overwrite=False: keep primary's slot/mode for existing names; only append new names from extra.
+    - If overwrite=True: replace existing names in primary with extra's slot/mode; append new names.
+    """
+    if not primary:
+        return list(extra or [])
+    if not extra:
+        return list(primary)
+
+    out = list(primary)
+    idx_by_name: dict[str, int] = {}
+    for i, p in enumerate(out):
+        n = p.get("name")
+        if isinstance(n, str) and n:
+            idx_by_name.setdefault(n, i)
+
+    for p in extra:
+        n = p.get("name")
+        if not isinstance(n, str) or not n:
+            continue
+        if n in idx_by_name:
+            if overwrite:
+                out[idx_by_name[n]] = p
+            continue
+        idx_by_name[n] = len(out)
+        out.append(p)
+
+    return out
 
 
 def build_params_fallback(sign1: str, sign2: str) -> list[dict] | None:
@@ -284,6 +356,36 @@ def build_params_fallback(sign1: str, sign2: str) -> list[dict] | None:
         return [
             {"name": "text" if i == 0 else f"text{i+1}", "mode": "TEXT", "slot": slot}
             for i, slot in enumerate(slots)
+        ]
+
+    # Game action: "Заполнить область" (Fill region with blocks).
+    # Some snapshots export too many LOCATION slots; provide a stable mapping for the core arguments.
+    if englishish_alias(sign2) in {"zapolnit_oblast", "zapolnit_oblast_blokami"}:
+        return [
+            {"name": "value", "mode": "ANY", "slot": 13},
+            {"name": "block", "mode": "ITEM", "slot": 13},
+            {"name": "loc", "mode": "LOCATION", "slot": 19},
+            {"name": "loc2", "mode": "LOCATION", "slot": 25},
+            {"name": "num", "mode": "NUMBER", "slot": 40},
+        ]
+
+    # Game action: "Поставить блок(и)" (Place blocks at locations).
+    # Export sometimes misses the ITEM slot for the block itself; add it.
+    if englishish_alias(sign2) in {"postavit_blok", "postavit_blok_i"}:
+        return [
+            {"name": "var", "mode": "VARIABLE", "slot": 1},
+            {"name": "value", "mode": "ANY", "slot": 4},
+            {"name": "block", "mode": "ITEM", "slot": 4},
+            {"name": "num", "mode": "NUMBER", "slot": 7},
+            {"name": "loc", "mode": "LOCATION", "slot": 18},
+            {"name": "loc2", "mode": "LOCATION", "slot": 19},
+            {"name": "loc3", "mode": "LOCATION", "slot": 20},
+            {"name": "loc4", "mode": "LOCATION", "slot": 21},
+            {"name": "loc5", "mode": "LOCATION", "slot": 22},
+            {"name": "loc6", "mode": "LOCATION", "slot": 23},
+            {"name": "loc7", "mode": "LOCATION", "slot": 24},
+            {"name": "loc8", "mode": "LOCATION", "slot": 25},
+            {"name": "loc9", "mode": "LOCATION", "slot": 26},
         ]
 
     return None
@@ -370,6 +472,15 @@ def build_enums(action: dict) -> list[dict]:
 
 
 def main():
+    ensure_dirs()
+    if not CATALOG_PATH.exists():
+        raise FileNotFoundError(
+            "Не найден `actions_catalog.json`.\n"
+            f"Путь: {CATALOG_PATH}\n"
+            "\n"
+            "Сначала запусти:\n"
+            "  python tools/build_actions_catalog.py\n"
+        )
     catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     api: dict[str, dict[str, dict]] = {}
     collisions: dict[str, int] = {}
@@ -426,6 +537,9 @@ def main():
         # - sign2/gui (what player sees on sign / in docs)
         # - menu (what player clicks in the GUI item list)
         menu_aliases = {englishish_alias(menu), rus_ident(menu)}
+        # Params must come from the exported params-chest snapshot only (glass markers),
+        # otherwise we mask bad parsing with hard-coded fallbacks.
+        merged_params = build_params(action)
         api[module][final_name] = {
             "id": action.get("id"),
             "sign1": sign1,
@@ -445,7 +559,7 @@ def main():
             ),
             "description": extract_description(action),
             "descriptionRaw": extract_description_raw(action),
-            "params": (build_params(action) or (build_params_fallback(sign1, sign2) or [])),
+            "params": merged_params,
             "enums": build_enums(action),
         }
 

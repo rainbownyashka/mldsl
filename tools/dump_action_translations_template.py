@@ -1,11 +1,25 @@
 import json
 from pathlib import Path
 
-API_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\api_aliases.json")
-OUT_PATH = Path(r"C:\Users\ASUS\Documents\mlctmodified\out\action_translations_template.json")
+from mldsl_paths import (
+    action_translations_path,
+    action_translations_template_path,
+    api_aliases_path,
+    ensure_dirs,
+)
+
+API_PATH = api_aliases_path()
+OUT_PATH = action_translations_template_path()
 
 
 def main():
+    ensure_dirs()
+    if not API_PATH.exists():
+        raise FileNotFoundError(
+            "Не найден `api_aliases.json`.\n"
+            f"Путь: {API_PATH}\n"
+            "Сначала запусти: python tools/build_api_aliases.py"
+        )
     data = json.loads(API_PATH.read_text(encoding="utf-8"))
     template = {}
     for module, funcs in data.items():
@@ -20,7 +34,7 @@ def main():
                 "aliases": spec.get("aliases", []),
             }
 
-    existing = Path(r"C:\Users\ASUS\Documents\mlctmodified\tools\action_translations.json")
+    existing = action_translations_path()
     if existing.exists():
         user = json.loads(existing.read_text(encoding="utf-8"))
         for key, custom in user.items():

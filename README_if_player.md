@@ -119,7 +119,7 @@ event(chat) {
 ### Файлы конфигурации
 - `src/assets/LangTokens.json` - содержит определения функций `IF_PLAYER`
 - `out/api_aliases.json` - генерируется с функциями `if_player`
-- `C:\Users\ASUS\Documents\allactions.txt` - содержит маппинг "Если игрок" → `minecraft:planks`
+- `allactions.txt` (в корне репозитория) - содержит маппинг "Если игрок" → `minecraft:planks`
 
 ### Ограничения
 1. Все функции `if_player` должны вызываться в нижнем регистре

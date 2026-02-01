@@ -24,3 +24,9 @@ allactions.txt
 # Local-only "premium" tools (not for GitHub)
 tools/_premium/
 .venv/
+
+# VSCode extension build artifacts
+tools/mldsl-vscode/*.vsix
+
+# Temporary scratch files
+tools/_tmp_*.mldsl

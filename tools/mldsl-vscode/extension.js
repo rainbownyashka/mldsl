@@ -16,15 +16,61 @@ function readJsonSafe(p) {
   }
 }
 
+function firstWorkspaceRoot() {
+  const w = vscode.workspace.workspaceFolders;
+  if (!w || w.length === 0) return null;
+  return w[0].uri.fsPath;
+}
+
+function autoDetectApiAliasesPath(rawCfg) {
+  const configured = String(rawCfg.apiAliasesPath || "").trim();
+  if (configured) return configured;
+
+  const candidates = [];
+
+  const ws = firstWorkspaceRoot();
+  if (ws) {
+    candidates.push(path.join(ws, "out", "api_aliases.json"));
+    candidates.push(path.join(ws, "tools", "out", "api_aliases.json"));
+  }
+
+  const localAppData = process.env.LOCALAPPDATA || "";
+  if (localAppData) {
+    candidates.push(path.join(localAppData, "MLDSL", "out", "api_aliases.json"));
+  }
+
+  const userProfile = process.env.USERPROFILE || "";
+  if (userProfile) {
+    candidates.push(path.join(userProfile, ".mldsl", "out", "api_aliases.json"));
+  }
+
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return "";
+}
+
+function autoDetectDocsRoot(rawCfg, apiAliasesPath) {
+  const configured = String(rawCfg.docsRoot || "").trim();
+  if (configured) return configured;
+  if (!apiAliasesPath) return "";
+  const dir = path.dirname(String(apiAliasesPath));
+  const p = path.join(dir, "docs");
+  return p;
+}
+
 function getConfig() {
   const cfg = vscode.workspace.getConfiguration("mldsl");
-  return {
+  const raw = {
     apiAliasesPath: cfg.get("apiAliasesPath"),
     docsRoot: cfg.get("docsRoot"),
     pythonPath: cfg.get("pythonPath"),
     compilerPath: cfg.get("compilerPath"),
     planPath: cfg.get("planPath"),
   };
+  const apiAliasesPath = autoDetectApiAliasesPath(raw);
+  const docsRoot = autoDetectDocsRoot(raw, apiAliasesPath);
+  return { ...raw, apiAliasesPath, docsRoot };
 }
 
 function stripMcColors(s) {
@@ -111,6 +157,30 @@ function loadEventsCatalog() {
     if (e.sign2) byPrefix[norm(e.sign2)] = e;
   }
   return { all, byPrefix };
+}
+
+function loadGameValuesCatalog() {
+  const { apiAliasesPath } = getConfig();
+  if (!apiAliasesPath) return { byLocName: {}, byKey: {}, path: null, exists: false };
+  const dir = path.dirname(String(apiAliasesPath));
+  let p = path.join(dir, "gamevalues.json");
+  let gv = readJsonSafe(p);
+  if (!gv || typeof gv !== "object") {
+    // fallback: sometimes apiAliasesPath points elsewhere; try docsRoot sibling
+    const { docsRoot } = getConfig();
+    if (docsRoot) {
+      const p2 = path.join(path.dirname(String(docsRoot)), "gamevalues.json");
+      const gv2 = readJsonSafe(p2);
+      if (gv2 && typeof gv2 === "object") {
+        p = p2;
+        gv = gv2;
+      }
+    }
+  }
+  if (!gv || typeof gv !== "object") return { byLocName: {}, byKey: {}, path: p, exists: fs.existsSync(p) };
+  const byLocName = (gv && gv.byLocName) || {};
+  const byKey = (gv && gv.byKey) || {};
+  return { byLocName, byKey, path: p, exists: fs.existsSync(p) };
 }
 
 function buildLookup(api) {
@@ -210,6 +280,18 @@ function findSelectDotContext(lineText, positionChar) {
   const m = left.match(/\b(?:select|vyborka|выборка)\.([\w\u0400-\u04FF]*)$/i);
   if (!m) return null;
   return { prefix: m[1] || "", rawModule: "select" };
+}
+
+function findGameValueDotContext(lineText, positionChar) {
+  const left = lineText.slice(0, positionChar);
+  if ((left.match(/\"/g) || []).length % 2 === 1) return null;
+  // Match: gamevalue.<...> (allow multi-dot like gamevalue.category.value)
+  const m = left.match(/\b(?:gamevalue|gameval|apple|яблоко|игровое_значение|игровоезначение)\.([\w\u0400-\u04FF\.]*)$/i);
+  if (!m) return null;
+  const raw = String(m[1] || "");
+  const parts = raw.split(".").filter(Boolean);
+  const prefix = parts.length ? parts[parts.length - 1] : "";
+  return { prefix };
 }
 
 function findQualifiedAtPosition(document, position) {
@@ -404,23 +486,47 @@ function activate(context) {
   let api = {};
   let lookup = {};
   let events = { all: [], byPrefix: {} };
+  let gamevalues = { byLocName: {}, byKey: {} };
   let statusItem = null;
+  let didWarnMissingApi = false;
 
   function reloadApi(reason) {
     const { apiAliasesPath, docsRoot } = getConfig();
     api = loadApi();
     lookup = buildLookup(api);
     events = loadEventsCatalog();
+    gamevalues = loadGameValuesCatalog();
     output.appendLine(`[reload] ${reason || "manual"}`);
     output.appendLine(`  apiAliasesPath=${apiAliasesPath}`);
     output.appendLine(`  docsRoot=${docsRoot}`);
     output.appendLine(`  apiLoadedModules=${Object.keys(api).length}`);
     output.appendLine(`  eventsLoaded=${events.all.length}`);
+    output.appendLine(`  gamevaluesLoaded=${Object.keys(gamevalues.byLocName || {}).length}`);
+    output.appendLine(`  gamevaluesPath=${gamevalues.path || ""}`);
+    output.appendLine(`  gamevaluesExists=${gamevalues.exists ? "yes" : "no"}`);
     if (apiAliasesPath && !fs.existsSync(apiAliasesPath)) {
       output.appendLine(`  WARN: apiAliasesPath does not exist`);
     }
     if (docsRoot && !fs.existsSync(docsRoot)) {
       output.appendLine(`  WARN: docsRoot does not exist`);
+    }
+
+    const apiMissing = !apiAliasesPath || !fs.existsSync(apiAliasesPath);
+    if (apiMissing && !didWarnMissingApi) {
+      didWarnMissingApi = true;
+      vscode.window
+        .showWarningMessage(
+          "MLDSL Helper: не найден `api_aliases.json`. Сгенерируй `out/` (python tools/build_all.py) или укажи пути в настройках расширения.",
+          "Открыть настройки",
+          "Открыть лог"
+        )
+        .then((choice) => {
+          if (choice === "Открыть настройки") {
+            vscode.commands.executeCommand("workbench.action.openSettings", "mldsl.");
+          } else if (choice === "Открыть лог") {
+            output.show(true);
+          }
+        });
     }
   }
 
@@ -566,6 +672,27 @@ function activate(context) {
       provideCompletionItems(document, position) {
         const id = ++seq;
         const line = document.lineAt(position.line).text;
+
+        // gamevalue.<...> completion
+        const gvDot = findGameValueDotContext(line, position.character);
+        if (gvDot && gamevalues && gamevalues.byLocName) {
+          const prefixRaw = String(gvDot.prefix || "");
+          const prefix = prefixRaw.toLowerCase();
+          const items = [];
+          for (const [loc, meta] of Object.entries(gamevalues.byLocName)) {
+            const display = stripMcColors((meta && meta.display) || "");
+            const hay = `${loc} ${display}`.toLowerCase();
+            if (prefix && !hay.includes(prefix)) continue;
+            const it = new vscode.CompletionItem(display || loc, vscode.CompletionItemKind.EnumMember);
+            it.detail = `gamevalue.${loc}`;
+            it.insertText = loc;
+            items.push(it);
+          }
+          if (items.length) {
+            output.appendLine(`[completion#${id}] gamevalue.<...> items=${items.length}`);
+            return items.slice(0, 120);
+          }
+        }
 
         // select.<...> completion (works even when generic module matcher fails)
         const selDot = findSelectDotContext(line, position.character);
@@ -894,6 +1021,22 @@ function activate(context) {
 
       const q = findQualifiedAtPosition(document, position);
       if (!q) return;
+
+      // Hover for gamevalue.<LOCNAME>
+      if ((q.module || "").toLowerCase() === "gamevalue" && gamevalues && gamevalues.byLocName) {
+        const meta = gamevalues.byLocName[q.func];
+        if (meta) {
+          const md = new vscode.MarkdownString();
+          md.isTrusted = true;
+          md.appendMarkdown(`**gamevalue.${q.func}**\n\n`);
+          if (meta.display) md.appendMarkdown(`- **name:** ${stripMcColors(meta.display)}\n`);
+          if (meta.id) md.appendMarkdown(`- **item:** ${meta.id}${meta.meta != null ? `:${meta.meta}` : ""}\n`);
+          if (meta.lore) md.appendMarkdown(`\n${stripMcColors(meta.lore)}\n`);
+          output.appendLine(`[hover#${id}] gamevalue.${q.func}`);
+          return new vscode.Hover(md, q.range);
+        }
+      }
+
       const mod = lookup[q.module];
       if (!mod) return;
       const entry = mod.byName[q.func];
