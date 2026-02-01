@@ -4,9 +4,23 @@
   "description": "Completion/hover/definition for MLDSL based on generated api_aliases.json",
   "version": "0.0.22",
   "publisher": "local",
+  "license": "SEE LICENSE.txt",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rainbownyashka/mldsl.git"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
+  "files": [
+    "extension.js",
+    "language-configuration.json",
+    "snippets.json",
+    "syntaxes/**",
+    "README.md",
+    "LICENSE.txt",
+    "package.json"
+  ],
   "categories": [
     "Other"
   ],

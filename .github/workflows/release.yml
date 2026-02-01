@@ -31,6 +31,7 @@ jobs:
 
       - name: Build VSIX
         run: |
+          mkdir -p dist/payload
           cd tools/mldsl-vscode
           npm ci
           vsce package --no-dependencies -o ../../dist/payload/mldsl-helper.vsix
@@ -58,4 +59,3 @@ jobs:
           files: |
             dist/release/*.exe
             dist/payload/mldsl-helper.vsix
-

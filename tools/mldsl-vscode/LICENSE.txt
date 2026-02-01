@@ -1,0 +1,7 @@
+MLDSL VSCode Extension
+
+This VSCode extension is distributed together with the MLDSL project.
+
+License terms: see the repository root `LICENSE` file:
+https://github.com/rainbownyashka/mldsl/blob/main/LICENSE
+
