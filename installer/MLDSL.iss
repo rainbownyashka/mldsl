@@ -16,11 +16,12 @@ AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 DefaultDirName={autopf}\\{#AppName}
 DisableProgramGroupPage=yes
+OutputDir=..\\dist\\release
 OutputBaseFilename={#AppName}-Setup-{#AppVersion}
 Compression=lzma
 SolidCompression=yes
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 
 [Tasks]
 Name: "addpath"; Description: "Добавить MLDSL в PATH (чтобы команда `mldsl` работала в любой папке)"; GroupDescription: "Интеграция"; Flags: checkedonce
@@ -37,6 +38,11 @@ Source: "{#AssetsDir}\\*"; DestDir: "{app}\\assets"; Flags: ignoreversion recurs
 ; Seed generated out/ so user doesn't need python/repo. Goes to %LOCALAPPDATA%\MLDSL\out
 Source: "{#SeedOutDir}\\*"; DestDir: "{localappdata}\\MLDSL\\out"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+; Optional VS Code extension
+#ifexist "{#VsixPath}"
+Source: "{#VsixPath}"; DestDir: "{tmp}"; DestName: "mldsl-helper.vsix"; Flags: ignoreversion deleteafterinstall; Tasks: vscodeext
+#endif
+
 [Icons]
 Name: "{autoprograms}\\{#AppName}"; Filename: "{app}\\{#AppExeName}"
 
@@ -46,7 +52,7 @@ Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; Value
 
 ; Context menu: compile current .mldsl into %APPDATA%\.minecraft\plan.json
 Root: HKCU; Subkey: "Software\\Classes\\SystemFileAssociations\\.mldsl\\shell\\MLDSL_CompileToPlan"; ValueType: string; ValueName: ""; ValueData: "MLDSL: скомпилировать в plan.json"; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\\Classes\\SystemFileAssociations\\.mldsl\\shell\\MLDSL_CompileToPlan\\command"; ValueType: string; ValueName: ""; ValueData: "\"{app}\\{#AppExeName}\" compile \"%%1\" --plan \"{userappdata}\\.minecraft\\plan.json\""; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\\Classes\\SystemFileAssociations\\.mldsl\\shell\\MLDSL_CompileToPlan\\command"; ValueType: string; ValueName: ""; ValueData: """{app}\\{#AppExeName}"" compile ""%%1"" --plan ""{userappdata}\\.minecraft\\plan.json"""; Tasks: contextmenu
 
 [Code]
 function NeedsAddPath(Dir: string): Boolean;
@@ -82,7 +88,7 @@ var
 begin
   if (CurStep = ssPostInstall) and WizardIsTaskSelected('vscodeext') then begin
     CodeExe := FindVSCodeExe();
-    Vsix := ExpandConstant('{#VsixPath}');
+    Vsix := ExpandConstant('{tmp}\mldsl-helper.vsix');
     if (CodeExe = '') then begin
       MsgBox('VS Code не найден. Расширение не установлено.'#13#10 +
         'Можно установить вручную: Extensions -> Install from VSIX.', mbInformation, MB_OK);
