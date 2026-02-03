@@ -65,6 +65,33 @@ def _cmd_paths(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_exportcode(args: argparse.Namespace) -> int:
+    ensure_dirs()
+    from mldsl_exportcode import exportcode_to_mldsl
+
+    export_path = Path(args.export_json).expanduser().resolve()
+    if not export_path.exists():
+        raise FileNotFoundError(f"Файл exportcode не найден: {export_path}")
+
+    api_path = Path(args.api).expanduser()
+    if not api_path.is_absolute():
+        api_path = Path.cwd() / api_path
+    if not api_path.exists():
+        raise FileNotFoundError(f"api_aliases.json не найден: {api_path}")
+
+    export_obj = json.loads(export_path.read_text(encoding="utf-8"))
+    api_obj = json.loads(api_path.read_text(encoding="utf-8"))
+    text = exportcode_to_mldsl(export_obj, api_obj)
+
+    out_path = Path(args.out).expanduser() if args.out else export_path.with_suffix(".mldsl")
+    if not out_path.is_absolute():
+        out_path = Path.cwd() / out_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(text, encoding="utf-8")
+    print(f"OK: wrote {out_path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="mldsl", description="MLDSL compiler/build tools")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -81,10 +108,19 @@ def main(argv: list[str] | None = None) -> int:
     sp_paths = sub.add_parser("paths", help="Print resolved paths (data_root/out/docs/etc)")
     sp_paths.set_defaults(func=_cmd_paths)
 
+    sp_export = sub.add_parser("exportcode", help="Convert exportcode_*.json (from BetterCode) to .mldsl")
+    sp_export.add_argument("export_json", help="Path to exportcode_*.json")
+    sp_export.add_argument(
+        "--api",
+        default="out/api_aliases.json",
+        help="Path to api_aliases.json (default: out/api_aliases.json)",
+    )
+    sp_export.add_argument("-o", "--out", default=None, help="Output .mldsl path (default: <export>.mldsl)")
+    sp_export.set_defaults(func=_cmd_exportcode)
+
     ns = p.parse_args(argv)
     return int(ns.func(ns))
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

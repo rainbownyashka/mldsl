@@ -47,6 +47,14 @@ mldsl compile file.mldsl --print-plan
 mldsl paths
 ```
 
+### Перевод exportcode → MLDSL
+
+Если BetterCode сохранил `exportcode_*.json`, его можно конвертировать в `.mldsl`:
+
+```powershell
+mldsl exportcode exportcode_123.json -o exported.mldsl
+```
+
 ## VS Code (подсказки)
 
 Расширение **MLDSL Helper** даёт:
@@ -66,4 +74,3 @@ python tools/build_all.py
 ```
 
 CI/релизы собираются без локальных файлов — из снапшота `seed/out/` (см. `seed/README.md`).
-

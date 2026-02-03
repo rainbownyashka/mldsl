@@ -59,3 +59,11 @@ mldsl compile test.mldsl --plan "%APPDATA%\\.minecraft\\plan.json"
 2) Extensions → “Install from VSIX…”
 3) Выбери `mldsl-helper.vsix` (его можно скачать из релиза или собрать локально)
 
+## (Опционально) Перевод блочного кода в MLDSL
+
+Если мод BetterCode экспортировал `exportcode_*.json`, его можно конвертировать в `.mldsl`:
+
+```powershell
+mldsl exportcode exportcode_123.json -o exported.mldsl
+```
+
