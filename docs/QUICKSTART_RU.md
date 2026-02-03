@@ -67,3 +67,4 @@ mldsl compile test.mldsl --plan "%APPDATA%\\.minecraft\\plan.json"
 mldsl exportcode exportcode_123.json -o exported.mldsl
 ```
 
+Конвертер пытается восстановить аргументы по снимку сундука параметров (`chestItems`) и enum‑переключателям. Если данных недостаточно, в файле будут `# WARN:` и вызовы без аргументов.
