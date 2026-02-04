@@ -16,6 +16,7 @@
   - “MLDSL: Скомпилировать в plan.json” → пишет в `%APPDATA%\\.minecraft\\plan.json`
 - Установить расширение VS Code `MLDSL Helper` (если VS Code найден)
   - Если VS Code не найден — установщик покажет инструкцию “Install from VSIX”.
+  - Скачать VS Code: https://code.visualstudio.com/
 
 ## Где хранится генерируемое
 

@@ -9,6 +9,20 @@
 - Node.js 20+
 - Inno Setup 6 (установщик)
 
+Установка через `winget` (по желанию):
+
+```powershell
+winget install -e --id Python.Python.3.13
+winget install -e --id OpenJS.NodeJS.LTS
+winget install -e --id JRSoftware.InnoSetup
+```
+
+Для Nuitka также нужен компилятор C/C++ (MSVC). Самый простой вариант:
+
+```powershell
+winget install -e --id Microsoft.VisualStudio.2022.BuildTools
+```
+
 ## 1) Собрать VS Code расширение (VSIX)
 
 ```powershell
