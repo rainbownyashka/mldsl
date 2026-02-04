@@ -1,4 +1,4 @@
-#define AppName "MLDSL"
+﻿#define AppName "MLDSL"
 #ifndef AppVersion
   #define AppVersion "0.1.0"
 #endif
@@ -27,9 +27,9 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Tasks]
-Name: "addpath"; Description: "Добавить MLDSL в PATH (можно вызывать `mldsl` из любой папки)"; GroupDescription: "Опции"; Flags: checkedonce
-Name: "contextmenu"; Description: "Контекстное меню проводника для .mldsl (компиляция в plan.json)"; GroupDescription: "Опции"; Flags: checkedonce
-Name: "vscodeext"; Description: "Установить расширение VS Code (если VS Code найден)"; GroupDescription: "Опции"; Flags: checkedonce
+Name: "addpath"; Description: "Добавить MLDSL в PATH (чтобы вызывать `mldsl` из любой папки)"; GroupDescription: "Опции"; Flags: checkedonce
+Name: "contextmenu"; Description: "Добавить пункт в контекстное меню для .mldsl (компиляция в plan.json)"; GroupDescription: "Опции"; Flags: checkedonce
+Name: "vscodeext"; Description: "Установить расширение для VS Code (если VS Code найден)"; GroupDescription: "Опции"; Flags: checkedonce
 
 [Files]
 ; App (Nuitka standalone folder)
@@ -38,7 +38,7 @@ Source: "{#BuildDir}\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 ; Static assets used by the compiler (read-only)
 Source: "{#AssetsDir}\\*"; DestDir: "{app}\\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Seed generated out/ so user doesn't need python/repo. Goes to %LOCALAPPDATA%\MLDSL\out
+; Seed generated out/ so user doesn't need python/repo. Goes to %LOCALAPPDATA%\\MLDSL\\out
 Source: "{#SeedOutDir}\\*"; DestDir: "{localappdata}\\MLDSL\\out"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Optional VS Code extension
@@ -53,7 +53,7 @@ Name: "{autoprograms}\\{#AppName}"; Filename: "{app}\\{#AppExeName}"
 ; PATH
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Tasks: addpath; Check: NeedsAddPath(ExpandConstant('{app}'))
 
-; Context menu: compile current .mldsl into %APPDATA%\.minecraft\plan.json
+; Context menu: compile current .mldsl into %APPDATA%\\.minecraft\\plan.json
 Root: HKCU; Subkey: "Software\\Classes\\SystemFileAssociations\\.mldsl\\shell\\MLDSL_CompileToPlan"; ValueType: string; ValueName: ""; ValueData: "MLDSL: Скомпилировать в plan.json"; Tasks: contextmenu
 Root: HKCU; Subkey: "Software\\Classes\\SystemFileAssociations\\.mldsl\\shell\\MLDSL_CompileToPlan\\command"; ValueType: string; ValueName: ""; ValueData: """{app}\\{#AppExeName}"" compile ""%%1"" --plan ""{userappdata}\\.minecraft\\plan.json"""; Tasks: contextmenu
 
@@ -78,7 +78,7 @@ begin
   if RegQueryStringValue(HKLM, 'Software\Microsoft\Windows\CurrentVersion\App Paths\Code.exe', '', P) then
     if FileExists(P) then begin Result := P; exit; end;
 
-  // common per-user install
+  ; common per-user install
   P := ExpandConstant('{localappdata}\Programs\Microsoft VS Code\Code.exe');
   if FileExists(P) then begin Result := P; exit; end;
 end;
@@ -92,24 +92,27 @@ begin
   if (CurStep = ssPostInstall) and WizardIsTaskSelected('vscodeext') then begin
     CodeExe := FindVSCodeExe();
     Vsix := ExpandConstant('{tmp}\mldsl-helper.vsix');
+
     if (CodeExe = '') then begin
       MsgBox(
-        'VS Code не найден. Расширение не установлено.'#13#10 +
-        'Можно поставить вручную: Extensions → Install from VSIX.',
+        'VS Code не найден. Расширение не будет установлено автоматически.'#13#10 +
+        'Можно установить вручную: Extensions → Install from VSIX.',
         mbInformation,
         MB_OK
       );
       exit;
     end;
+
     if not FileExists(Vsix) then begin
       MsgBox(
-        'VSIX файл не найден в установщике (mldsl-helper.vsix).'#13#10 +
-        'Расширение не установлено.',
+        'VSIX-файл не найден в установщике (mldsl-helper.vsix).'#13#10 +
+        'Расширение не будет установлено автоматически.',
         mbInformation,
         MB_OK
       );
       exit;
     end;
+
     Exec(CodeExe, '--install-extension "' + Vsix + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;

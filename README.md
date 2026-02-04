@@ -1,51 +1,43 @@
-# MLDSL (RU-first)
+﻿# MLDSL (RU-first)
 
-MLDSL — язык/компилятор для Mineland‑кодинга (Minecraft). Он компилирует `.mldsl` в `plan.json`, который исполняется модом BetterCode командой `/mldsl run`.
+MLDSL — язык и компилятор для Mineland K+ (Minecraft), который компилирует `.mldsl` в `plan.json` для мода BetterCode (MLBetterCode) и команды `/mldsl run`.
 
-## Документация
+## Документация (RU)
 
-- Быстрый старт (RU): `docs/QUICKSTART_RU.md`
-- Полный гайд (RU): `docs/MLDSL_GUIDE_RU.md`
+- Быстрый старт: `docs/QUICKSTART_RU.md`
+- Полный гайд: `docs/MLDSL_GUIDE_RU.md`
 
-## Требуется мод в игре
+## Что нужно для печати в игре
 
-Исполнение `plan.json` в Minecraft делает мод BetterCode (MLBetterCode):
-
-- https://github.com/rainbownyashka/mlbettercode
+- Мод BetterCode (MLBetterCode) для Minecraft 1.12.2 Forge: https://github.com/rainbownyashka/mlbettercode
+- `plan.json`, сгенерированный компилятором MLDSL
 
 ## Установка (Windows)
 
-Скачай установщик из Releases и запусти. Установщик:
+Рекомендуемый вариант — **установщик** (кладёт `mldsl.exe`, assets, seed-`out/`, опционально ставит VS Code расширение и добавляет контекстное меню).
 
-- ставит `mldsl.exe` и нужные ассеты;
-- кладёт seed‑`out/` в `%LOCALAPPDATA%\\MLDSL\\out`, чтобы всё работало сразу;
-- опционально ставит VS Code расширение `MLDSL Helper`.
+- Releases: https://github.com/rainbownyashka/mldsl/releases
+- Что именно ставится и какие есть опции: `installer/README.md`
 
-### Опции установщика
+## Быстрый запуск
 
-- **Добавить в PATH** — можно вызывать `mldsl` из любой папки.
-- **Контекстное меню проводника** — добавляет пункт для `.mldsl`:
-  - “MLDSL: Скомпилировать в plan.json” → компилирует выбранный файл в `%APPDATA%\\.minecraft\\plan.json`.
-- **Установить расширение VS Code** — если VS Code найден, установщик попытается поставить `.vsix` автоматически.
+1) Скомпилировать файл в `plan.json`:
+- `mldsl compile test.mldsl --plan "%APPDATA%\\.minecraft\\plan.json"`
 
-Если VS Code не установлен — подсказки/hover/autocomplete работать не будут, но компиляция через `mldsl.exe` всё равно доступна.
+2) В игре распечатать план:
+- `/mldsl run "%APPDATA%\\.minecraft\\plan.json"`
 
-## Быстрые команды
+## Разработка (генерация API/доков)
 
-- Компиляция в `plan.json` (пример):
-  - `mldsl compile test.mldsl --plan "%APPDATA%\\.minecraft\\plan.json"`
-- Запуск в игре:
-  - `/mldsl run "%APPDATA%\\.minecraft\\plan.json"`
+Локальная генерация `out/` требует экспортов из игры:
+- `%APPDATA%\\.minecraft\\regallactions_export.txt` (или `MLDSL_REGALLACTIONS_EXPORT=<путь>`)
+- (опционально) `apples.txt`
 
-## Разработка / пересборка API
-
-Сгенерировать `out/` из локальных экспортов:
-
+Команда:
 - `python tools/build_all.py`
 
-В CI/релизах используется снапшот `seed/out/` (см. `seed/README.md`).
+Для CI/релизов используется зафиксированный snapshot `seed/out/` (см. `seed/README.md`).
 
 ## Лицензия
 
 См. `LICENSE`.
-

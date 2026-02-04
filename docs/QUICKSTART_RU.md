@@ -1,23 +1,17 @@
-# MLDSL — быстрый старт (RU)
+﻿# MLDSL — быстрый старт (RU)
 
 ## 0) Что нужно
 
-- **В игре:** мод BetterCode (MLBetterCode), чтобы выполнять `plan.json` через `/mldsl run`:
+- Мод BetterCode (MLBetterCode) для Minecraft 1.12.2 Forge (печатает `plan.json` через `/mldsl run`):
   - https://github.com/rainbownyashka/mlbettercode
-- **На ПК (Windows):** установщик MLDSL из Releases (ставит `mldsl.exe`).
-- **Для удобства:** VS Code (опционально) + расширение **MLDSL Helper** (подсказки/hover/F12).
+- MLDSL (компилятор `.mldsl` → `plan.json`):
+  - скачай установщик или `mldsl.exe` из Releases: https://github.com/rainbownyashka/mldsl/releases
 
-## 1) Установи MLDSL
+Опционально (очень рекомендуется):
+- VS Code + расширение **MLDSL Helper** (автодополнение, hover, F12).
+  - Установщик может поставить расширение автоматически, либо можно вручную “Install from VSIX”.
 
-Скачай и запусти установщик из Releases.
-
-Рекомендуемые галочки:
-
-- “Добавить `mldsl` в PATH”
-- “Контекстное меню проводника для `.mldsl`”
-- “Установить расширение VS Code” (если VS Code установлен)
-
-## 2) Создай файл `.mldsl`
+## 1) Напиши код `.mldsl`
 
 Пример:
 
@@ -27,23 +21,22 @@ event("Вход игрока") {
 }
 ```
 
-## 3) Скомпилируй в `plan.json`
+## 2) Скомпилируй в `plan.json`
 
-### Вариант A (контекстное меню)
+### Вариант A — через контекстное меню Проводника (если включено в установщике)
 
-ПКМ по файлу `.mldsl` → “MLDSL: Скомпилировать в plan.json”.
+ПКМ по файлу `.mldsl` → **MLDSL: Скомпилировать в plan.json**.
 
-Результат записывается в:
-
+По умолчанию пишет в:
 - `%APPDATA%\\.minecraft\\plan.json`
 
-### Вариант B (командой)
+### Вариант B — через команду
 
 ```powershell
 mldsl compile test.mldsl --plan "%APPDATA%\\.minecraft\\plan.json"
 ```
 
-## 4) Запусти в игре
+## 3) Распечатай план в игре
 
 В Minecraft (в чате):
 
@@ -51,20 +44,3 @@ mldsl compile test.mldsl --plan "%APPDATA%\\.minecraft\\plan.json"
 /mldsl run "%APPDATA%\.minecraft\plan.json"
 ```
 
-## 5) VS Code (подсказки)
-
-Если авто‑установка расширения не сработала:
-
-1) Открой VS Code
-2) Extensions → “Install from VSIX…”
-3) Выбери `mldsl-helper.vsix` (его можно скачать из релиза или собрать локально)
-
-## (Опционально) Перевод блочного кода в MLDSL
-
-Если мод BetterCode экспортировал `exportcode_*.json`, его можно конвертировать в `.mldsl`:
-
-```powershell
-mldsl exportcode exportcode_123.json -o exported.mldsl
-```
-
-Конвертер пытается восстановить аргументы по снимку сундука параметров (`chestItems`) и enum‑переключателям. Если данных недостаточно, в файле будут `# WARN:` и вызовы без аргументов.

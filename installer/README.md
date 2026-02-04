@@ -1,35 +1,26 @@
-# Инсталлер (Windows)
+﻿# Установщик MLDSL (Windows)
 
-Схема: **1 exe + (опционально) Inno Setup installer**.
+Установщик ставит MLDSL как обычную программу и помогает сразу получить автоподсказки/компиляцию.
 
-## Что ставит инсталлер
+## Что устанавливается
 
-- `mldsl.exe` в `{Program Files}\MLDSL`
-- read-only ассеты в `{Program Files}\MLDSL\assets\`
+- `mldsl.exe` в `{Program Files}\\MLDSL`
+- read-only assets в `{Program Files}\\MLDSL\\assets\\`:
   - `Aliases.json`, `LangTokens.json`, `allactions.txt`
-- (опционально) добавляет `mldsl` в `PATH`
-- (опционально) добавляет пункт контекстного меню для `.mldsl`:
-  - компиляция в `%APPDATA%\.minecraft\plan.json`
+- seed-версия `out/` в `%LOCALAPPDATA%\\MLDSL\\out` (доки + `api_aliases.json`), чтобы **не нужен был Python** и экспорты из игры
 
-Все **генерируемые файлы** (`out/api_aliases.json`, `out/docs`, кеши, логи) по умолчанию идут в:
+## Опции установщика
 
-- `%LOCALAPPDATA%\MLDSL\...`
+- Добавить `mldsl` в `PATH` (можно запускать `mldsl` из любой папки)
+- Добавить пункт в контекстное меню Проводника для `.mldsl`:
+  - “MLDSL: Скомпилировать в plan.json” → пишет в `%APPDATA%\\.minecraft\\plan.json`
+- Установить расширение VS Code `MLDSL Helper` (если VS Code найден)
+  - Если VS Code не найден — установщик покажет инструкцию “Install from VSIX”.
+
+## Где хранится генерируемое
+
+Все данные (логи/кэши/доки) лежат в `%LOCALAPPDATA%\\MLDSL\\...`.
 
 Portable-режим:
-
-- `MLDSL_PORTABLE=1` или файл `portable.flag` рядом с exe → данные в `<папка_с_exe>\MLDSL\...`
-
-## Сборка exe
-
-Рекомендуемый entrypoint для сборки: `mldsl_cli.py`.
-
-Минимум для работы компилятора: сначала сгенерировать `out/`:
-
-```powershell
-python tools\build_all.py
-```
-
-## Сборка инсталлера
-
-Открой `installer/MLDSL.iss` в Inno Setup Compiler и собери.
-
+- `MLDSL_PORTABLE=1` или файл `portable.flag` рядом с `mldsl.exe`
+- тогда данные идут в `<папка_с_exe>\\MLDSL\\...`

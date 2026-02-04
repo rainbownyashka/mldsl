@@ -1,43 +1,52 @@
-# Сборка установщика (Windows)
+﻿# Сборка (Windows)
 
-Этот репозиторий умеет собирать установщик, который содержит:
+Этот документ — для разработчиков, которые хотят собрать `mldsl.exe`, VS Code расширение и установщик.
 
-- `mldsl.exe` (скомпилированный CLI);
-- read-only assets (`Aliases.json`, `LangTokens.json`, `allactions.txt`);
-- seed-снапшот `out/` (доки + api_aliases), чтобы всё работало сразу после установки;
-- опционально VSCode расширение `mldsl-helper.vsix`.
+## Требования
 
-## 1) Подготовка payload
+- Windows 10/11 x64
+- Python 3.13+
+- Node.js 20+
+- Inno Setup 6 (установщик)
 
-Payload — это папка `dist/payload/...`, которую потом забирает Inno Setup (`installer/MLDSL.iss`).
-
-Локально (с пересборкой `out/` из твоего `.minecraft/regallactions_export.txt` и `apples.txt`):
-
-```powershell
-python packaging\prepare_installer_payload.py
-```
-
-Для CI/релиза (без локальных файлов, строго из снапшота `seed/out`):
-
-```powershell
-python packaging\prepare_installer_payload.py --use-seed
-```
-
-## 2) Сборка установщика (Inno Setup)
-
-```powershell
-iscc installer\MLDSL.iss
-```
-
-Готовый установщик появится в `dist/release/`.
-
-## 3) VSCode расширение (опционально)
+## 1) Собрать VS Code расширение (VSIX)
 
 ```powershell
 cd tools/mldsl-vscode
 npm ci
-vsce package --no-dependencies -o ../../dist/payload/mldsl-helper.vsix
+npx --yes @vscode/vsce package --no-dependencies -o ../../dist/payload/mldsl-helper.vsix
 ```
 
-Если `dist/payload/mldsl-helper.vsix` существует, установщик предложит авто-установку расширения.
+## 2) Подготовить payload для установщика
 
+Payload кладётся в `dist/payload/` и включает:
+- `app/` (standalone сборка `mldsl.exe` + зависимости)
+- `assets/` (read-only файлы: `Aliases.json`, `LangTokens.json`, `allactions.txt`)
+- `seed_out/` (предсобранный `out/`, чтобы пользователю не нужен был Python/экспорты)
+- (опционально) `mldsl-helper.vsix`
+
+### Режим для CI/релизов (без экспортов из игры)
+
+```powershell
+python packaging/prepare_installer_payload.py --use-seed
+```
+
+Этот режим использует snapshot `seed/out/` (см. `seed/README.md`).
+
+### Режим для разработки (пересобрать `out/` из локальных экспортов)
+
+Нужно, чтобы существовал экспорт:
+- `%APPDATA%\\.minecraft\\regallactions_export.txt`
+  - или переменная `MLDSL_REGALLACTIONS_EXPORT=<путь>`
+
+```powershell
+python packaging/prepare_installer_payload.py
+```
+
+## 3) Собрать установщик (Inno Setup)
+
+```powershell
+iscc installer/MLDSL.iss
+```
+
+Готовый установщик окажется в `dist/release/`.
