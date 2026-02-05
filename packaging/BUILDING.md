@@ -64,3 +64,10 @@ iscc installer/MLDSL.iss
 ```
 
 Готовый установщик окажется в `dist/release/`.
+
+Примечания:
+- В релизах VSIX (`dist/payload/mldsl-helper.vsix`) обязателен и встраивается в установщик.
+- Для dev-сборки без VSIX можно собрать так:
+  ```powershell
+  iscc installer/MLDSL.iss /DNoVsix=1
+  ```

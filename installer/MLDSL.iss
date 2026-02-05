@@ -11,6 +11,11 @@
 #define SeedOutDir "..\\dist\\payload\\seed_out"
 #define VsixPath "..\\dist\\payload\\mldsl-helper.vsix"
 
+#ifndef NoVsix
+  ; Set to 1 to build installer without bundling the VSIX (dev builds).
+  #define NoVsix 0
+#endif
+
 [Setup]
 AppId={{D0E2D9AF-5A7D-4F19-9B89-0A1B9A1A8E23}
 AppName={#AppName}
@@ -42,7 +47,7 @@ Source: "{#AssetsDir}\\*"; DestDir: "{app}\\assets"; Flags: ignoreversion recurs
 Source: "{#SeedOutDir}\\*"; DestDir: "{localappdata}\\MLDSL\\out"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Optional VS Code extension
-#ifexist "{#VsixPath}"
+#if {#NoVsix} == 0
 Source: "{#VsixPath}"; DestDir: "{tmp}"; DestName: "mldsl-helper.vsix"; Flags: ignoreversion deleteafterinstall; Tasks: vscodeext
 #endif
 
