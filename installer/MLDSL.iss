@@ -47,7 +47,7 @@ Source: "{#AssetsDir}\\*"; DestDir: "{app}\\assets"; Flags: ignoreversion recurs
 Source: "{#SeedOutDir}\\*"; DestDir: "{localappdata}\\MLDSL\\out"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Optional VS Code extension
-#if {#NoVsix} == 0
+#if NoVsix == 0
 Source: "{#VsixPath}"; DestDir: "{tmp}"; DestName: "mldsl-helper.vsix"; Flags: ignoreversion deleteafterinstall; Tasks: vscodeext
 #endif
 
