@@ -17,6 +17,9 @@
 - Установить расширение VS Code `MLDSL Helper` (если VS Code найден)
   - Если VS Code не найден — установщик покажет инструкцию “Install from VSIX”.
   - Скачать VS Code: https://code.visualstudio.com/
+- Скачать/обновить мод BetterCode в `%APPDATA%\\.minecraft\\mods`
+  - Берётся последний релиз из `https://github.com/rainbownyashka/mlbettercode/releases`
+  - Нужен интернет во время установки
 
 ## Где хранится генерируемое
 

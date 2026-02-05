@@ -35,6 +35,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Name: "addpath"; Description: "Добавить MLDSL в PATH (чтобы вызывать `mldsl` из любой папки)"; GroupDescription: "Опции"; Flags: checkedonce
 Name: "contextmenu"; Description: "Добавить пункт в контекстное меню для .mldsl (компиляция в plan.json)"; GroupDescription: "Опции"; Flags: checkedonce
 Name: "vscodeext"; Description: "Установить расширение для VS Code (если VS Code найден)"; GroupDescription: "Опции"; Flags: checkedonce
+Name: "bettercode"; Description: "Скачать/обновить мод BetterCode в %APPDATA%\.minecraft\mods"; GroupDescription: "Опции"
 
 [Files]
 ; App (Nuitka standalone folder)
@@ -88,6 +89,48 @@ begin
   if FileExists(P) then begin Result := P; exit; end;
 end;
 
+function InstallOrUpdateBetterCodeMod(): Boolean;
+var
+  PsExe: string;
+  ScriptPath: string;
+  Script: string;
+  ResultCode: Integer;
+begin
+  Result := False;
+  PsExe := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  if not FileExists(PsExe) then
+    PsExe := 'powershell.exe';
+
+  ScriptPath := ExpandConstant('{tmp}\mldsl_bettercode_update.ps1');
+  Script :=
+    '$ErrorActionPreference = "Stop"'#13#10 +
+    '$repo = "rainbownyashka/mlbettercode"'#13#10 +
+    '$api = "https://api.github.com/repos/" + $repo + "/releases/latest"'#13#10 +
+    '$release = Invoke-RestMethod -Uri $api -Headers @{ "User-Agent" = "MLDSL-Installer" }'#13#10 +
+    '$asset = $release.assets | Where-Object { $_.name -match "bettercode.*\.jar$" } | Select-Object -First 1'#13#10 +
+    'if (-not $asset) { throw "No BetterCode jar asset found in latest release." }'#13#10 +
+    '$mods = Join-Path $env:APPDATA ".minecraft\mods"'#13#10 +
+    'New-Item -ItemType Directory -Force -Path $mods | Out-Null'#13#10 +
+    '$outPath = Join-Path $mods $asset.name'#13#10 +
+    'Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $outPath -UseBasicParsing'#13#10 +
+    'Write-Output ("Installed: " + $outPath)'#13#10;
+
+  if not SaveStringToFile(ScriptPath, Script, False) then
+    exit;
+
+  if not Exec(
+    PsExe,
+    '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
+    exit;
+
+  Result := (ResultCode = 0);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   CodeExe: string;
@@ -124,6 +167,24 @@ begin
       MsgBox(
         'Не удалось запустить установку расширения VS Code автоматически.'#13#10 +
         'Можно установить вручную: Extensions → Install from VSIX.',
+        mbInformation,
+        MB_OK
+      );
+    end;
+  end;
+
+  if (CurStep = ssPostInstall) and WizardIsTaskSelected('bettercode') then begin
+    if not InstallOrUpdateBetterCodeMod() then begin
+      MsgBox(
+        'Не удалось скачать/обновить BetterCode автоматически.'#13#10 +
+        'Проверь интернет и попробуй вручную:'#13#10 +
+        'https://github.com/rainbownyashka/mlbettercode/releases',
+        mbInformation,
+        MB_OK
+      );
+    end else begin
+      MsgBox(
+        'BetterCode успешно скачан/обновлён в %APPDATA%\.minecraft\mods.',
         mbInformation,
         MB_OK
       );
