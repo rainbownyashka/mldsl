@@ -78,7 +78,7 @@ begin
   if RegQueryStringValue(HKLM, 'Software\Microsoft\Windows\CurrentVersion\App Paths\Code.exe', '', P) then
     if FileExists(P) then begin Result := P; exit; end;
 
-  ; common per-user install
+  // common per-user install
   P := ExpandConstant('{localappdata}\Programs\Microsoft VS Code\Code.exe');
   if FileExists(P) then begin Result := P; exit; end;
 end;
