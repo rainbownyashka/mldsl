@@ -35,13 +35,6 @@ jobs:
           python -m pip install -U nuitka
           choco install innosetup -y
 
-      - name: Build VSIX
-        run: |
-          New-Item -ItemType Directory -Force dist/payload | Out-Null
-          cd tools/mldsl-vscode
-          npm ci
-          npx --yes @vscode/vsce package --no-dependencies -o ../../dist/payload/mldsl-helper.vsix
-
       - name: Prepare payload (build + seed out)
         run: |
           python packaging/prepare_installer_payload.py --use-seed

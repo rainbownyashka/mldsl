@@ -2,6 +2,40 @@
 
 Этот документ — для разработчиков, которые хотят собрать `mldsl.exe`, VS Code расширение и установщик.
 
+## Быстрый старт (одна команда)
+
+Новый оркестратор сборки:
+
+```powershell
+python tools/pipeline.py fast
+```
+
+Режимы:
+
+- `fast` - проверка Python-скриптов + `build-all` + smoke compile `.mldsl -> plan.json`
+- `dev` - `fast` + сборка VSIX
+- `release` - `dev` + payload + установщик Inno Setup
+- `all` - алиас полного цикла (как `release`)
+
+Примеры:
+
+```powershell
+# ежедневная разработка
+python tools/pipeline.py fast
+
+# подготовить dev-артефакты (включая VSIX)
+python tools/pipeline.py dev
+
+# полный релизный прогон
+python tools/pipeline.py release --app-version 0.1.11
+
+# если Inno Setup не установлен локально
+python tools/pipeline.py release --app-version 0.1.11 --allow-missing-iscc
+
+# если нет Node.js/npm (пропустить сборку VSIX)
+python tools/pipeline.py dev --skip-vsix
+```
+
 ## Требования
 
 - Windows 10/11 x64
@@ -55,6 +89,13 @@ python packaging/prepare_installer_payload.py --use-seed
 
 ```powershell
 python packaging/prepare_installer_payload.py
+```
+
+Примечание: теперь `prepare_installer_payload.py` по умолчанию также собирает VSIX в `dist/payload/mldsl-helper.vsix`.
+Для dev-режима без VSIX:
+
+```powershell
+python packaging/prepare_installer_payload.py --use-seed --no-vsix
 ```
 
 ## 3) Собрать установщик (Inno Setup)
