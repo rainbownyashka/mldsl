@@ -535,15 +535,57 @@ function activate(context) {
 
   context.subscriptions.push(vscode.commands.registerCommand("mldsl.reloadApi", () => reloadApi("command")));
 
-  function findCompilerPath() {
+  function findCompilerPathLegacyPy() {
     const { compilerPath } = getConfig();
-    if (compilerPath && fs.existsSync(compilerPath)) return compilerPath;
+    if (compilerPath && fs.existsSync(compilerPath) && String(compilerPath).toLowerCase().endsWith(".py"))
+      return compilerPath;
 
     const folders = vscode.workspace.workspaceFolders || [];
     if (!folders.length) return null;
     const root = folders[0].uri.fsPath;
     const auto = path.join(root, "tools", "mldsl_compile.py");
     if (fs.existsSync(auto)) return auto;
+    return null;
+  }
+
+  function findCliPath() {
+    const { compilerPath } = getConfig();
+    if (compilerPath && fs.existsSync(compilerPath) && !String(compilerPath).toLowerCase().endsWith(".py"))
+      return compilerPath;
+
+    const candidates = [];
+    const pf = process.env.ProgramFiles;
+    const pf86 = process.env["ProgramFiles(x86)"];
+    if (pf) candidates.push(path.join(pf, "MLDSL", "mldsl.exe"));
+    if (pf86) candidates.push(path.join(pf86, "MLDSL", "mldsl.exe"));
+    const lap = process.env.LOCALAPPDATA || process.env.localappdata;
+    if (lap) {
+      candidates.push(path.join(lap, "MLDSL", "mldsl.exe"));
+      candidates.push(path.join(lap, "Programs", "MLDSL", "mldsl.exe"));
+    }
+    for (const p of candidates) {
+      if (p && fs.existsSync(p)) return p;
+    }
+
+    // try PATH lookup (Windows)
+    const pathVar = process.env.PATH || process.env.Path || "";
+    const parts = String(pathVar)
+      .split(path.delimiter)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    for (const dir of parts) {
+      const exe = path.join(dir, "mldsl.exe");
+      if (fs.existsSync(exe)) return exe;
+    }
+
+    return null;
+  }
+
+  function findCompiler() {
+    const cli = findCliPath();
+    if (cli) return { kind: "cli", cli };
+    const py = findCompilerPathLegacyPy();
+    if (py) return { kind: "py", py };
     return null;
   }
 
@@ -569,22 +611,29 @@ function activate(context) {
 
     await ed.document.save();
 
-    const compiler = findCompilerPath();
+    const compiler = findCompiler();
     const { pythonPath } = getConfig();
     if (!compiler) {
       vscode.window.showErrorMessage(
-        "MLDSL: compiler not found. Set mldsl.compilerPath or open the mlctmodified workspace root."
+        "MLDSL: compiler not found. Install MLDSL (mldsl.exe) or set mldsl.compilerPath."
       );
-      output.appendLine(`[compile#${id}] compiler missing (config.compilerPath not found; auto-detect failed)`);
+      output.appendLine(`[compile#${id}] compiler missing (auto-detect failed; config.compilerPath not found)`);
       return;
     }
 
     const filePath = ed.document.uri.fsPath;
-    output.appendLine(`[compile#${id}] ${pythonPath} ${compiler} ${filePath}`);
+    if (compiler.kind === "cli") {
+      output.appendLine(`[compile#${id}] ${compiler.cli} compile ${filePath}`);
+    } else {
+      output.appendLine(`[compile#${id}] ${pythonPath} ${compiler.py} ${filePath}`);
+    }
 
     const env = Object.assign({}, process.env, { PYTHONIOENCODING: "utf-8" });
 
-    cp.execFile(pythonPath || "python", [compiler, filePath], { env }, async (err, stdout, stderr) => {
+    const execFile = compiler.kind === "cli" ? compiler.cli : pythonPath || "python";
+    const args = compiler.kind === "cli" ? ["compile", filePath] : [compiler.py, filePath];
+
+    cp.execFile(execFile, args, { env }, async (err, stdout, stderr) => {
       if (stderr && String(stderr).trim()) {
         output.appendLine(`[compile#${id}] stderr: ${String(stderr).trim()}`);
       }
@@ -619,11 +668,11 @@ function activate(context) {
 
     await ed.document.save();
 
-    const compiler = findCompilerPath();
+    const compiler = findCompiler();
     const { pythonPath } = getConfig();
     if (!compiler) {
       vscode.window.showErrorMessage(
-        "MLDSL: compiler not found. Set mldsl.compilerPath or open the mlctmodified workspace root."
+        "MLDSL: compiler not found. Install MLDSL (mldsl.exe) or set mldsl.compilerPath."
       );
       output.appendLine(`[plan#${id}] compiler missing (config.compilerPath not found; auto-detect failed)`);
       return;
@@ -631,11 +680,18 @@ function activate(context) {
 
     const filePath = ed.document.uri.fsPath;
     const outPlan = resolvePlanPath();
-    output.appendLine(`[plan#${id}] ${pythonPath} ${compiler} --plan ${outPlan} ${filePath}`);
+    if (compiler.kind === "cli") {
+      output.appendLine(`[plan#${id}] ${compiler.cli} compile ${filePath} --plan ${outPlan}`);
+    } else {
+      output.appendLine(`[plan#${id}] ${pythonPath} ${compiler.py} --plan ${outPlan} ${filePath}`);
+    }
 
     const env = Object.assign({}, process.env, { PYTHONIOENCODING: "utf-8" });
 
-    cp.execFile(pythonPath || "python", [compiler, "--plan", outPlan, filePath], { env }, async (err, stdout, stderr) => {
+    const execFile = compiler.kind === "cli" ? compiler.cli : pythonPath || "python";
+    const args = compiler.kind === "cli" ? ["compile", filePath, "--plan", outPlan] : [compiler.py, "--plan", outPlan, filePath];
+
+    cp.execFile(execFile, args, { env }, async (err, stdout, stderr) => {
       if (stderr && String(stderr).trim()) {
         output.appendLine(`[plan#${id}] stderr: ${String(stderr).trim()}`);
       }

@@ -2,7 +2,7 @@
   "name": "mldsl-helper",
   "displayName": "MLDSL Helper",
   "description": "Completion/hover/definition for MLDSL based on generated api_aliases.json",
-  "version": "0.0.22",
+  "version": "0.0.23",
   "publisher": "local",
   "license": "SEE LICENSE.txt",
   "repository": {
@@ -76,7 +76,7 @@
         "mldsl.compilerPath": {
           "type": "string",
           "default": "",
-          "description": "Path to tools/mldsl_compile.py (leave empty to auto-detect from workspace root)"
+          "description": "Path to compiler. Can be mldsl.exe (recommended) or tools/mldsl_compile.py (legacy). Leave empty to auto-detect."
         },
         "mldsl.planPath": {
           "type": "string",
