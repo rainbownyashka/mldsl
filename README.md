@@ -33,8 +33,9 @@ MLDSL — язык и компилятор для Mineland K+ (Minecraft), ко�
 - `%APPDATA%\\.minecraft\\regallactions_export.txt` (или `MLDSL_REGALLACTIONS_EXPORT=<путь>`)
 - (опционально) `apples.txt`
 
-Команда:
+Команда (инкрементальная, с `SKIP/RUN`):
 - `python tools/build_all.py`
+- принудительно всё пересобрать: `python tools/build_all.py --force`
 
 Единый конвейер (проверки + сборка):
 - `python tools/pipeline.py fast` (или `dev` / `release`)

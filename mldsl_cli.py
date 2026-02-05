@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import runpy
+import sys
 from pathlib import Path
 
 from mldsl_paths import ensure_dirs, out_dir, repo_root
@@ -10,7 +11,14 @@ from mldsl_paths import ensure_dirs, out_dir, repo_root
 
 def _cmd_build_all(_args: argparse.Namespace) -> int:
     ensure_dirs()
-    runpy.run_path(str(repo_root() / "tools" / "build_all.py"), run_name="__main__")
+    target = str(repo_root() / "tools" / "build_all.py")
+    # Isolate argv so inner argparse does not receive outer `mldsl_cli` args.
+    prev_argv = sys.argv[:]
+    try:
+        sys.argv = [target]
+        runpy.run_path(target, run_name="__main__")
+    finally:
+        sys.argv = prev_argv
     return 0
 
 

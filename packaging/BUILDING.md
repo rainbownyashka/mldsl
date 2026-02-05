@@ -17,6 +17,10 @@ python tools/pipeline.py fast
 - `release` - `dev` + payload + установщик Inno Setup
 - `all` - алиас полного цикла (как `release`)
 
+`build_all` внутри конвейера теперь инкрементальный:
+- если входы не менялись, шаги помечаются как `SKIP`
+- для полного пересчёта: `python tools/build_all.py --force`
+
 Примеры:
 
 ```powershell
