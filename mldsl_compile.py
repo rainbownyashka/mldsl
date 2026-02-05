@@ -63,9 +63,15 @@ def load_known_events() -> dict:
         signs = rec.get("signs") or ["", "", "", ""]
         sign1 = strip_colors(signs[0]).strip()
         sign2 = strip_colors(signs[1]).strip()
-        if sign1 not in ("Событие игрока", "Событие мира"):
+        s1 = sign1.lower()
+        if "событие" not in s1:
             continue
-        block = "diamond_block" if sign1 == "Событие игрока" else "gold_block"
+        if "игрока" in s1:
+            block = "diamond_block"
+        elif "мира" in s1:
+            block = "gold_block"
+        else:
+            continue
         menu = parse_item_display_name(rec.get("subitem") or rec.get("category") or "") or sign2
         if not menu:
             continue

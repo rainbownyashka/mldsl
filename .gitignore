@@ -25,7 +25,10 @@ regallactions_export.txt
 allactions.txt
 
 # Local-only "premium" tools (not for GitHub)
-tools/_premium/
+tools/_premium/*
+!tools/_premium/ai_coder.py
+!tools/_premium/prompts/
+!tools/_premium/prompts/*.prompt
 .venv/
 
 # VSCode extension build artifacts
