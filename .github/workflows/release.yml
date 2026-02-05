@@ -22,6 +22,9 @@ jobs:
         with:
           # Nuitka has prebuilt wheels for 3.12; 3.13 often builds from sdist and is slower on CI.
           python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            packaging/requirements-build.txt
 
       - uses: actions/setup-node@v4
         with:
@@ -32,7 +35,7 @@ jobs:
 
       - name: Install build deps
         run: |
-          python -m pip install -U nuitka
+          python -m pip install -r packaging/requirements-build.txt
           choco install innosetup -y
 
       - name: Prepare payload (build + seed out)
