@@ -118,6 +118,15 @@ begin
       exit;
     end;
 
-    Exec(CodeExe, '--install-extension "' + Vsix + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // Do not block installer on VS Code process lifecycle.
+    // On some systems Code.exe may remain running and Setup appears frozen.
+    if not Exec(CodeExe, '--install-extension "' + Vsix + '" --force', '', SW_HIDE, ewNoWait, ResultCode) then begin
+      MsgBox(
+        'Не удалось запустить установку расширения VS Code автоматически.'#13#10 +
+        'Можно установить вручную: Extensions → Install from VSIX.',
+        mbInformation,
+        MB_OK
+      );
+    end;
   end;
 end;
