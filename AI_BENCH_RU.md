@@ -36,6 +36,19 @@
 
 Наблюдение: `deepseek-r1:8b` часто уходит в долгую генерацию, 120s timeout может быть недостаточен без `--ollama-timeout`.
 
+## GM‑палка (nested call‑blocks)
+
+Prompt: `tools/_premium/prompts/ir_gmstick_ru.prompt`  
+Требует вложенных блоков условий вида `if_player.имеет_право(...) { ... }` и `if_player.держит_предмет(...) { ... }`.
+
+Команда:
+`uv run tools/_premium/ai_coder.py agent --ir --prompt-file tools/_premium/prompts/ir_gmstick_ru.prompt --model <MODEL> --max-steps 4 --allow-write --debug --ollama-timeout 600`
+
+Результаты:
+- `qwen2.5-coder:7b` — PASS (без ретраев)
+- `qwen3-coder` — PASS (без ретраев)
+- `qwen2.5-coder:3b-instruct-q4_K_M` — PASS (с ретраями: сначала пытался передать `count/name` не в `item={"expr":...}` и ошибся с kw)
+
 ## Дальше (что улучшать)
 
 - IR схема для `if/else`, `select`, `loop`, `func/call`, return/args.
@@ -43,4 +56,3 @@
 - Для “невозможности” невалидного вывода сильнее, чем `format=json`:
   - в будущем можно подключить настоящую grammar‑констрейнт декодировку (Outlines/Guidance/llama.cpp grammar),
     но сейчас практический выигрыш уже даёт `format=json` + валидатор + ретраи.
-

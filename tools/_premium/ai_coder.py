@@ -523,7 +523,9 @@ def cmd_agent(
             '  \"ops\": [\n'
             '    {\"op\":\"new_program\"},\n'
             '    {\"op\":\"begin_event\",\"name\":\"...\"},\n'
+            '    {\"op\":\"begin_call_block\",\"target\":\"module.func\",\"parameters\":{\"kw\":\"value\"}},\n'
             '    {\"op\":\"add_action\",\"target\":\"module.func\",\"parameters\":{\"kw\":\"value\"}},\n'
+            '    {\"op\":\"end_call_block\"},\n'
             '    {\"op\":\"end_event\"},\n'
             '    {\"op\":\"save_program\"}\n'
             "  ]\n"
@@ -531,6 +533,7 @@ def cmd_agent(
             "Где:\n"
             "- target всегда строка вида module.func (например player.message)\n"
             "- parameters: объект keyword-аргументов (только те, что реально существуют)\n"
+            "- begin_call_block/end_call_block: открывает/закрывает блок условия вида if_player.имеет_право(...) { ... }\n"
             "Нельзя добавлять другие поля/структуры.\n"
         )
 
@@ -600,20 +603,53 @@ def cmd_agent(
                         key = re.sub(r"[^0-9a-zа-я]+", " ", key)
                         key = re.sub(r"\s+", " ", key).strip()
                         mapped = None
-                        if key in {"join", "enter", "player enter", "player joined", "player join", "вход", "событие входа"}:
+                        if key in {
+                            "join",
+                            "enter",
+                            "player enter",
+                            "player joined",
+                            "player join",
+                            "вход",
+                            "вход игрока",
+                            "событие входа",
+                        }:
                             mapped = "вход"
-                        elif key in {"leave", "quit", "exit", "player leave", "player quit", "выход", "событие выхода"}:
+                        elif key in {
+                            "leave",
+                            "quit",
+                            "exit",
+                            "player leave",
+                            "player quit",
+                            "выход",
+                            "выход игрока",
+                            "событие выхода",
+                        }:
                             mapped = "выход"
+                        elif key in {"right click", "rightclick", "правый клик", "игрок кликает правой кнопкой"}:
+                            mapped = "Правый клик"
+                        elif key in {"left click", "leftclick", "левый клик", "игрок кликает левой кнопкой"}:
+                            mapped = "Левый клик"
                         ev_name = mapped or raw_name
                         if mapped and debug:
                             eprint(f"[debug][IR] mapped event name: {raw_name!r} -> {ev_name!r}")
                         tc = {"name": "begin_event", "args": {"file_id": need_file_id(), "name": ev_name}}
+                    elif name == "begin_call_block":
+                        target = op.get("target") or ""
+                        params = op.get("parameters") or {}
+                        if not target:
+                            return False, "begin_call_block missing target"
+                        tc = {
+                            "name": "begin_call_block",
+                            "args": {"file_id": need_file_id(), "target": target, "parameters": params},
+                        }
                     elif name == "add_action":
                         target = op.get("target") or ""
                         params = op.get("parameters") or {}
                         if not target:
                             return False, "add_action missing target"
                         tc = {"name": "add_action", "args": {"file_id": need_file_id(), "target": target, "parameters": params}}
+                    elif name == "end_call_block":
+                        tc = {"name": "end_call_block", "args": {"file_id": need_file_id()}}
                     elif name == "end_event":
                         tc = {"name": "end_event", "args": {"file_id": need_file_id()}}
                     elif name == "save_program":
@@ -643,6 +679,15 @@ def cmd_agent(
                         if fid:
                             file_id = fid
                     if name == "add_action":
+                        try:
+                            data = json.loads(res) if isinstance(res, str) else {}
+                        except Exception:
+                            data = {}
+                        mod = str((data or {}).get("module") or "").strip()
+                        fn = str((data or {}).get("func") or "").strip()
+                        if mod and fn:
+                            used_funcs.add((mod, fn))
+                    if name == "begin_call_block":
                         try:
                             data = json.loads(res) if isinstance(res, str) else {}
                         except Exception:
@@ -1929,6 +1974,95 @@ def cmd_agent(
             return json.dumps({"if_id": bid}, ensure_ascii=False)
 
         @tool
+        def begin_call_block(
+            file_id: str,
+            target: str | None = None,
+            call: str | None = None,
+            module: str | None = None,
+            func: str | None = None,
+            parameters: dict | None = None,
+            params: dict | None = None,
+        ) -> str:
+            """Open a call-style block like: if_player.имеет_право(...) { ... }.
+            target: "module.func" (aliases allowed). parameters: dict of kw args; values may be literals or {expr:"raw"}.
+            Returns JSON {ok,module,func,call_id}.
+            """
+            f = _bfile(file_id)
+            tgt = (target or call or "").strip()
+            if (not tgt) and module and func:
+                tgt = f"{module}.{func}"
+            if "." not in tgt:
+                raise ValueError("target must be module.func")
+            mod_raw, fn_raw = tgt.split(".", 1)
+            r = api.resolve(mod_raw, fn_raw)
+            if not r:
+                raise ValueError(f"unknown function: {mod_raw}.{fn_raw}")
+
+            spec = r.spec or {}
+            spec_aliases = {a for a in (spec.get("aliases") or []) if isinstance(a, str)}
+            call_params = [p for p in (spec.get("params") or []) if isinstance(p, dict) and p.get("name")]
+            enums = [e for e in (spec.get("enums") or []) if isinstance(e, dict) and e.get("name")]
+            allowed = {str(p["name"]) for p in call_params} | {str(e["name"]) for e in enums}
+            provided = (parameters or params or {}) if (parameters or params) else {}
+            if not isinstance(provided, dict):
+                raise ValueError("parameters must be an object/dict")
+            for k in provided.keys():
+                if allowed and k not in allowed:
+                    raise ValueError(f"{r.module}.{r.canon}: unknown kw arg `{k}` (allowed: {', '.join(sorted(allowed))})")
+            # enum strict check when value is a plain string literal
+            for e in enums:
+                en = str(e["name"])
+                if en not in provided:
+                    continue
+                v = provided[en]
+                if isinstance(v, dict) and "expr" in v:
+                    continue
+                if isinstance(v, str):
+                    opts = e.get("options")
+                    if isinstance(opts, dict) and opts and v not in opts:
+                        examples = ", ".join(list(opts.keys())[:10])
+                        raise ValueError(f"enum `{en}`: неизвестное значение `{v}`. Варианты: {examples}")
+
+            arg_parts: list[str] = []
+            for p in call_params:
+                n = str(p["name"])
+                if n in provided:
+                    arg_parts.append(f"{n}={_emit_value(provided[n])}")
+            for e in enums:
+                n = str(e["name"])
+                if n in provided:
+                    arg_parts.append(f"{n}={_emit_value(provided[n])}")
+
+            emit_func = fn_raw.strip()
+            if emit_func not in spec_aliases:
+                emit_func = ""
+            if not emit_func:
+                for a in sorted(spec_aliases, key=len):
+                    if not re.match(r"^[a-z][a-z0-9_]*$", a):
+                        continue
+                    if a.startswith(("unnamed", "gen_")):
+                        continue
+                    emit_func = a
+                    break
+            if not emit_func:
+                emit_func = r.canon
+
+            header = f"{r.module}.{emit_func}({', '.join(arg_parts)})"
+            call_id = _start_block(f, "call", header)
+            return json.dumps({"ok": True, "module": r.module, "func": r.canon, "call_id": call_id}, ensure_ascii=False)
+
+        @tool
+        def end_call_block(file_id: str, call_id: str | None = None, block_id: str | None = None) -> str:
+            """Close a call block. If call_id omitted, closes the top open call."""
+            f = _bfile(file_id)
+            bid = (call_id or block_id or "").strip()
+            if not bid:
+                closed = _end_top_block(f, "call")
+                return json.dumps({"call_id": closed, "auto": True}, ensure_ascii=False)
+            _end_block(f, bid, "call")
+            return json.dumps({"call_id": bid}, ensure_ascii=False)
+
+        @tool
         def begin_select(file_id: str, selector: str | None = None, name: str | None = None) -> str:
             """Open a select block: select.<selector> { ... }. Returns JSON {select_id}."""
             f = _bfile(file_id)
@@ -2186,6 +2320,8 @@ def cmd_agent(
             end_if,
             start_if,
             close_if,
+            begin_call_block,
+            end_call_block,
             begin_select,
             end_select,
             start_select,
@@ -2280,6 +2416,9 @@ def cmd_agent(
                 if "function_id" in low and ("begin_function" in low or "start_function" in low):
                     if "function_id" in builder_ctx:
                         return builder_ctx["function_id"]
+                if "call_id" in low and ("begin_call_block" in low or "start_call_block" in low or "begin_call" in low):
+                    if "call_id" in builder_ctx:
+                        return builder_ctx["call_id"]
         return obj
 
     def _builder_ctx_capture(res: str) -> None:
@@ -2349,6 +2488,11 @@ def cmd_agent(
             if isinstance(fid, str):
                 if fid and not fid.startswith("b") and "function_id" in builder_ctx:
                     args["function_id"] = builder_ctx["function_id"]
+        if name in {"end_call_block"}:
+            cid = args.get("call_id") or args.get("block_id")
+            if isinstance(cid, str):
+                if cid and not cid.startswith("b") and "call_id" in builder_ctx:
+                    args["call_id"] = builder_ctx["call_id"]
         return args
 
     if (not builder_mode) and allow_write:
