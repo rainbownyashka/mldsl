@@ -1,6 +1,7 @@
 const vscode = require("vscode");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const cp = require("child_process");
 
 const output = vscode.window.createOutputChannel("MLDSL Helper");
@@ -706,8 +707,140 @@ function activate(context) {
     });
   }
 
+  function parseImports(text) {
+    const out = [];
+    const lines = String(text || "").split(/\r?\n/);
+    for (const raw of lines) {
+      const line = String(raw || "").trim();
+      if (!line) continue;
+      if (line.startsWith("#") || line.startsWith("//")) continue;
+      const m = line.match(/^(import|use|использовать)\s+(.+?)\s*$/i);
+      if (!m) continue;
+      let spec = String(m[2] || "").trim();
+      spec = spec.replace(/^["']|["']$/g, "").trim();
+      if (!spec) continue;
+      out.push(spec);
+    }
+    return out;
+  }
+
+  function resolveImportPath(fromFile, spec) {
+    const baseDir = path.dirname(fromFile);
+    let p = String(spec || "").trim();
+    if (!p) return null;
+    if (!p.toLowerCase().endsWith(".mldsl")) p = `${p}.mldsl`;
+    return path.resolve(baseDir, p);
+  }
+
+  function collectDepsRecursive(entryFile) {
+    const seen = new Set();
+    const order = [];
+
+    function visit(file) {
+      const abs = path.resolve(file);
+      if (seen.has(abs)) return;
+      seen.add(abs);
+      if (!fs.existsSync(abs)) {
+        throw new Error(`Import not found: ${abs}`);
+      }
+      order.push(abs);
+      const txt = fs.readFileSync(abs, "utf8");
+      for (const spec of parseImports(txt)) {
+        const dep = resolveImportPath(abs, spec);
+        if (!dep) continue;
+        visit(dep);
+      }
+    }
+
+    visit(entryFile);
+    return order;
+  }
+
+  async function publishModule() {
+    const id = ++seq;
+    const ed = vscode.window.activeTextEditor;
+    if (!ed || !ed.document) {
+      vscode.window.showWarningMessage("MLDSL: No active editor");
+      return;
+    }
+    if (ed.document.languageId !== "mldsl") {
+      vscode.window.showWarningMessage("MLDSL: Not an .mldsl file");
+      return;
+    }
+    await ed.document.save();
+
+    const compiler = findCompiler();
+    const { pythonPath } = getConfig();
+    if (!compiler) {
+      vscode.window.showErrorMessage("MLDSL: compiler not found. Install MLDSL (mldsl.exe) or set mldsl.compilerPath.");
+      output.appendLine(`[publish#${id}] compiler missing (auto-detect failed; config.compilerPath not found)`);
+      return;
+    }
+
+    const entryFile = ed.document.uri.fsPath;
+    let deps;
+    try {
+      deps = collectDepsRecursive(entryFile);
+    } catch (e) {
+      output.appendLine(`[publish#${id}] ERROR: ${e.message || String(e)}`);
+      vscode.window.showErrorMessage(`MLDSL: ${e.message || String(e)}`);
+      return;
+    }
+
+    const tmpRoot = path.join(os.tmpdir(), `mldsl-publish-${Date.now()}`);
+    fs.mkdirSync(tmpRoot, { recursive: true });
+
+    const entryBaseDir = path.dirname(entryFile);
+    for (const abs of deps) {
+      const rel = path.relative(entryBaseDir, abs);
+      const safeRel = rel.startsWith("..") ? path.basename(abs) : rel;
+      const dest = path.join(tmpRoot, safeRel);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(abs, dest);
+    }
+
+    const planPath = path.join(tmpRoot, "plan.json");
+    output.appendLine(`[publish#${id}] tmp=${tmpRoot}`);
+
+    const env = Object.assign({}, process.env, { PYTHONIOENCODING: "utf-8" });
+    const execFile = compiler.kind === "cli" ? compiler.cli : pythonPath || "python";
+    const args =
+      compiler.kind === "cli"
+        ? ["compile", entryFile, "--plan", planPath]
+        : [compiler.py, "--plan", planPath, entryFile];
+
+    output.appendLine(`[publish#${id}] ${execFile} ${args.join(" ")}`);
+
+    cp.execFile(execFile, args, { env }, async (err, _stdout, stderr) => {
+      if (stderr && String(stderr).trim()) output.appendLine(`[publish#${id}] stderr: ${String(stderr).trim()}`);
+      if (err) {
+        output.appendLine(`[publish#${id}] ERROR: ${err.message || String(err)}`);
+        vscode.window.showErrorMessage("MLDSL: Compile plan failed (see Output → MLDSL Helper)");
+        return;
+      }
+
+      try {
+        await vscode.env.openExternal(vscode.Uri.parse("https://mldsl-hub.pages.dev/"));
+      } catch {}
+
+      try {
+        await vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(planPath));
+      } catch {
+        try {
+          cp.execFile("explorer.exe", [tmpRoot]);
+        } catch {}
+      }
+
+      vscode.window.showInformationMessage(
+        `MLDSL: prepared publish bundle (${deps.length} file(s) + plan.json). Drag & drop files into Hub → Опубликовать.`
+      );
+      output.appendLine(`[publish#${id}] ok files=${deps.length} plan=${planPath}`);
+    });
+  }
+
   context.subscriptions.push(vscode.commands.registerCommand("mldsl.compileAndCopy", compileAndCopy));
   context.subscriptions.push(vscode.commands.registerCommand("mldsl.compilePlan", compilePlan));
+  context.subscriptions.push(vscode.commands.registerCommand("mldsl.publishModule", publishModule));
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (

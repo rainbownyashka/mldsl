@@ -1026,16 +1026,25 @@ def compile_line(api: dict, line: str):
                                 file=__import__('sys').stderr,
                             )
 
-                    # close match (still conservative)
+                    # close match (still conservative). Use ratio + margin to avoid accidental wrong match.
                     if clicks is None and raw_norm and len(raw_norm) >= 4:
-                        best = difflib.get_close_matches(raw_norm, list(norm_map.keys()), n=1, cutoff=0.92)
-                        if best:
-                            fixed = best[0]
-                            clicks = norm_map[fixed]
-                            print(
-                                f"[warn] enum `{ename}`: исправлено `{raw_val}` -> `{norm_to_key.get(fixed, fixed)}`",
-                                file=__import__('sys').stderr,
-                            )
+                        def ratio(a: str, b: str) -> float:
+                            return difflib.SequenceMatcher(None, a, b).ratio()
+
+                        scored = sorted(
+                            ((ratio(raw_norm, nk), nk) for nk in norm_map.keys()),
+                            key=lambda x: x[0],
+                            reverse=True,
+                        )
+                        if scored:
+                            best_r, best_k = scored[0]
+                            second_r = scored[1][0] if len(scored) > 1 else 0.0
+                            if best_r >= 0.88 and (best_r - second_r) >= 0.04:
+                                clicks = norm_map[best_k]
+                                print(
+                                    f"[warn] enum `{ename}`: исправлено `{raw_val}` -> `{norm_to_key.get(best_k, best_k)}`",
+                                    file=__import__('sys').stderr,
+                                )
         if clicks is None:
             # allow numeric
             try:

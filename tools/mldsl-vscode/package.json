@@ -2,7 +2,7 @@
   "name": "mldsl-helper",
   "displayName": "MLDSL Helper",
   "description": "Completion/hover/definition for MLDSL based on generated api_aliases.json",
-  "version": "0.0.23",
+  "version": "0.0.24",
   "publisher": "local",
   "license": "SEE LICENSE.txt",
   "repository": {
@@ -95,6 +95,10 @@
         "title": "MLDSL: Compile & Copy Command(s)"
       },
       {
+        "command": "mldsl.publishModule",
+        "title": "MLDSL: Publish Module (open Hub + files)"
+      },
+      {
         "command": "mldsl.compilePlan",
         "title": "MLDSL: Compile to plan.json"
       }
@@ -102,7 +106,7 @@
     "menus": {
       "editor/title": [
         {
-          "command": "mldsl.compileAndCopy",
+          "command": "mldsl.publishModule",
           "when": "resourceLangId == mldsl",
           "group": "navigation"
         },
