@@ -7,9 +7,10 @@ import sys
 from pathlib import Path
 
 
-def run(cmd: list[str]) -> None:
-    print("+", " ".join(cmd))
-    subprocess.check_call(cmd)
+def run(cmd: list[str], *, cwd: Path | None = None) -> None:
+    prefix = f"+ (cwd={cwd}) " if cwd else "+ "
+    print(prefix + " ".join(cmd))
+    subprocess.check_call(cmd, cwd=str(cwd) if cwd else None)
 
 
 def copy_tree(src: Path, dst: Path) -> None:
@@ -24,6 +25,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Use committed seed/out snapshot (for CI / releases). Skips tools/build_all.py.",
     )
+    p.add_argument(
+        "--no-vsix",
+        action="store_true",
+        help="Do not build VS Code extension VSIX into dist/payload (dev mode).",
+    )
     return p.parse_args(argv)
 
 
@@ -34,6 +40,7 @@ def main() -> int:
     app_dir = payload / "app"
     assets_dir = payload / "assets"
     seed_out_dir = payload / "seed_out"
+    vsix_path = payload / "mldsl-helper.vsix"
 
     payload.mkdir(parents=True, exist_ok=True)
 
@@ -96,13 +103,35 @@ def main() -> int:
             raise SystemExit(f"Expected generated out/ at: {local_out}")
         copy_tree(local_out, seed_out_dir)
 
+    # 5) Build VS Code extension VSIX (bundled into installer by default).
+    if not args.no_vsix:
+        ext_dir = repo / "tools" / "mldsl-vscode"
+        if not ext_dir.exists():
+            raise SystemExit(f"VS Code extension folder not found: {ext_dir}")
+        run(["npm", "ci"], cwd=ext_dir)
+        run(
+            [
+                "npx",
+                "--yes",
+                "@vscode/vsce",
+                "package",
+                "--no-dependencies",
+                "-o",
+                str(vsix_path),
+            ],
+            cwd=ext_dir,
+        )
+        if not vsix_path.exists():
+            raise SystemExit(f"VSIX output not found: {vsix_path}")
+
     print("")
     print("OK: prepared payload at:", payload)
     print("- app:", app_dir)
     print("- assets:", assets_dir)
     print("- seed_out:", seed_out_dir)
+    if not args.no_vsix:
+        print("- vsix:", vsix_path)
     print("")
-    print("Optional: build VSIX and place at dist/payload/mldsl-helper.vsix for auto-install.")
     return 0
 
 

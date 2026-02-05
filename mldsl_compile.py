@@ -428,6 +428,58 @@ def parse_call_args(arg_str: str):
             pos.append(v)
     return kv, pos
 
+def ru_to_translit_ident(s: str) -> str:
+    """
+    Best-effort RU -> translit conversion for identifiers (enum/param names).
+    Supports writing keyword args in Cyrillic, e.g. режим_игры=... for rezhim_igry.
+    """
+    if not s:
+        return ""
+    m = {
+        "а": "a",
+        "б": "b",
+        "в": "v",
+        "г": "g",
+        "д": "d",
+        "е": "e",
+        "ё": "yo",
+        "ж": "zh",
+        "з": "z",
+        "и": "i",
+        "й": "y",
+        "к": "k",
+        "л": "l",
+        "м": "m",
+        "н": "n",
+        "о": "o",
+        "п": "p",
+        "р": "r",
+        "с": "s",
+        "т": "t",
+        "у": "u",
+        "ф": "f",
+        "х": "h",
+        "ц": "ts",
+        "ч": "ch",
+        "ш": "sh",
+        "щ": "sch",
+        "ы": "y",
+        "э": "e",
+        "ю": "yu",
+        "я": "ya",
+        "ь": "",
+        "ъ": "",
+    }
+    out = []
+    for ch in str(s):
+        lo = ch.lower()
+        if lo in m:
+            tr = m[lo]
+            out.append(tr.upper() if ch.isupper() else tr)
+        else:
+            out.append(ch)
+    return "".join(out)
+
 def wrap_value(mode: str | None, value: str) -> str:
     v = (value or "").strip()
     if not v:
@@ -835,6 +887,17 @@ def compile_line(api: dict, line: str):
         raise ValueError(f"Unknown action: {module}.{func}")
 
     kv, pos = parse_call_args(arg_str)
+
+    # Accept Cyrillic keyword names for params/enums by transliterating to canonical keys.
+    # Example: if_player.режим_игрока(режим_игры="Креатив")
+    extra_kv: dict[str, str] = {}
+    for k, v in (kv or {}).items():
+        if any("а" <= ch.lower() <= "я" or ch.lower() == "ё" for ch in str(k)):
+            kk = ru_to_translit_ident(str(k))
+            if kk and kk not in kv and kk not in extra_kv:
+                extra_kv[kk] = v
+    if extra_kv:
+        kv.update(extra_kv)
     # Special-case: some actions use a plain chest without any glass "arg markers".
     # For such actions, we still want to support passing items via slot(N)=item(...)
     # so /placeadvanced can fill the chest.

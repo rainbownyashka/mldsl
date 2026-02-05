@@ -2,7 +2,7 @@
   "name": "mldsl-helper",
   "displayName": "MLDSL Helper",
   "description": "Completion/hover/definition for MLDSL based on generated api_aliases.json",
-  "version": "0.0.24",
+  "version": "0.0.25",
   "publisher": "local",
   "license": "SEE LICENSE.txt",
   "repository": {

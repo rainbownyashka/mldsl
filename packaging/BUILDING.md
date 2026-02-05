@@ -71,3 +71,23 @@ iscc installer/MLDSL.iss
   ```powershell
   iscc installer/MLDSL.iss /DNoVsix=1
   ```
+
+## 4) Публикация расширения (автообновления)
+
+Если расширение опубликовано в Marketplace/OpenVSX, VS Code будет обновлять его автоматически.
+Но это *не обязательно*, потому что установщик MLDSL уже умеет ставить VSIX оффлайн.
+
+Варианты:
+
+- **VS Code Marketplace** (автообновления “из коробки”)
+  - Нужно: аккаунт издателя + токен.
+  - Понадобится поменять `publisher` в `tools/mldsl-vscode/package.json` (сейчас `local`).
+  - Команда: `npx --yes @vscode/vsce publish`
+
+- **OpenVSX** (часто проще, работает в VSCodium)
+  - Нужно: токен OpenVSX.
+  - Команда: `npx --yes ovsx publish -p <TOKEN>`
+
+Рекомендация:
+- Для новичков/оффлайна — **держать VSIX внутри установщика**.
+- Для продвинутых — дополнительно публиковать в OpenVSX/Marketplace.

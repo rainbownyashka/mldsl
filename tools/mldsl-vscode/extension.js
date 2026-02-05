@@ -80,6 +80,122 @@ function stripMcColors(s) {
     .replace(/[\x00-\x1f]/g, "");
 }
 
+// Best-effort transliteration helpers used for keyword-arg aliases:
+// - compiler uses translit identifiers like `rezhim_igry`
+// - users often type Cyrillic: `режим_игры`
+function ruToTranslitIdent(s) {
+  const m = {
+    а: "a",
+    б: "b",
+    в: "v",
+    г: "g",
+    д: "d",
+    е: "e",
+    ё: "yo",
+    ж: "zh",
+    з: "z",
+    и: "i",
+    й: "y",
+    к: "k",
+    л: "l",
+    м: "m",
+    н: "n",
+    о: "o",
+    п: "p",
+    р: "r",
+    с: "s",
+    т: "t",
+    у: "u",
+    ф: "f",
+    х: "h",
+    ц: "ts",
+    ч: "ch",
+    ш: "sh",
+    щ: "sch",
+    ы: "y",
+    э: "e",
+    ю: "yu",
+    я: "ya",
+    ь: "",
+    ъ: "",
+  };
+  let out = "";
+  for (const ch of String(s || "")) {
+    const lo = ch.toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(m, lo)) {
+      const tr = m[lo];
+      out += ch === lo ? tr : tr.toUpperCase();
+    } else out += ch;
+  }
+  return out;
+}
+
+function translitToRuIdent(s) {
+  const src = String(s || "");
+  const lower = src.toLowerCase();
+  const pairs = [
+    ["sch", "щ"],
+    ["sh", "ш"],
+    ["ch", "ч"],
+    ["zh", "ж"],
+    ["yo", "ё"],
+    ["yu", "ю"],
+    ["ya", "я"],
+    ["ts", "ц"],
+  ];
+  const single = {
+    a: "а",
+    b: "б",
+    v: "в",
+    g: "г",
+    d: "д",
+    e: "е",
+    z: "з",
+    i: "и",
+    y: "й",
+    k: "к",
+    l: "л",
+    m: "м",
+    n: "н",
+    o: "о",
+    p: "п",
+    r: "р",
+    s: "с",
+    t: "т",
+    u: "у",
+    f: "ф",
+    h: "х",
+    _: "_",
+  };
+  let out = "";
+  let i = 0;
+  while (i < src.length) {
+    const rest = lower.slice(i);
+    let matched = false;
+    for (const [latin, ru] of pairs) {
+      if (rest.startsWith(latin)) {
+        const orig = src.slice(i, i + latin.length);
+        out += orig === orig.toUpperCase() ? ru.toUpperCase() : ru;
+        i += latin.length;
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+    const ch = src[i];
+    const lo = lower[i];
+    if (Object.prototype.hasOwnProperty.call(single, lo)) {
+      const ru = single[lo];
+      out += ch === ch.toUpperCase() ? ru.toUpperCase() : ru;
+      i += 1;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
 function normKey(s) {
   return stripMcColors(s)
     .toLowerCase()
@@ -454,14 +570,18 @@ function specToMarkdown(spec) {
     lines.push("");
     lines.push("**params:**");
     for (const p of spec.params) {
-      lines.push(`- \`${p.name}\` (${p.mode}) slot ${p.slot}`);
+      const ru = translitToRuIdent(p.name);
+      const extra = ru && ru !== p.name ? ` (RU: \`${ru}\`)` : "";
+      lines.push(`- \`${p.name}\`${extra} (${p.mode}) slot ${p.slot}`);
     }
   }
   if (spec.enums && spec.enums.length) {
     lines.push("");
     lines.push("**enums:**");
     for (const e of spec.enums) {
-      lines.push(`- \`${e.name}\` slot ${e.slot}`);
+      const ru = translitToRuIdent(e.name);
+      const extra = ru && ru !== e.name ? ` (RU: \`${ru}\`)` : "";
+      lines.push(`- \`${e.name}\`${extra} slot ${e.slot}`);
       const opts = e.options || {};
       const keys = Object.keys(opts);
       if (keys.length) {
@@ -1012,7 +1132,14 @@ function activate(context) {
             if (enums.length === 1) {
               chosenEnum = enums[0];
             } else {
-              chosenEnum = enums.find((e) => e && e.name === key) || null;
+              const keyNorm = normKey(key);
+              const keyTr = ruToTranslitIdent(key);
+              const keyTrNorm = normKey(keyTr);
+              chosenEnum =
+                enums.find((e) => e && (normKey(e.name) === keyNorm || normKey(e.name) === keyTrNorm)) || null;
+              if (!chosenEnum) {
+                chosenEnum = enums.find((e) => e && normKey(translitToRuIdent(e.name)) === keyNorm) || null;
+              }
             }
 
             if (chosenEnum && chosenEnum.options) {
@@ -1056,18 +1183,40 @@ function activate(context) {
           }
 
           // Key completion inside (...) : suggest param/enum names.
+          const rawKeyPrefix = !token.includes("=") ? token : "";
+          const keyPrefixNorm = normKey(rawKeyPrefix);
           const argItems = [];
           for (const p of params) {
-            const item = new vscode.CompletionItem(p.name, vscode.CompletionItemKind.Property);
-            item.detail = `param ${p.mode} slot ${p.slot}`;
-            item.insertText = new vscode.SnippetString(`${p.name}=\${1}`);
-            argItems.push(item);
+            const name = String(p.name || "");
+            if (!name) continue;
+            const nameRu = translitToRuIdent(name);
+
+            const addItem = (label, insertName, detailExtra) => {
+              if (keyPrefixNorm && !normKey(label).startsWith(keyPrefixNorm)) return;
+              const item = new vscode.CompletionItem(label, vscode.CompletionItemKind.Property);
+              item.detail = `param ${p.mode} slot ${p.slot}${detailExtra ? ` (${detailExtra})` : ""}`;
+              item.insertText = new vscode.SnippetString(`${insertName}=\${1}`);
+              argItems.push(item);
+            };
+
+            addItem(name, name, null);
+            if (nameRu && nameRu !== name) addItem(nameRu, nameRu, `alias for ${name}`);
           }
           for (const e of enums) {
-            const item = new vscode.CompletionItem(e.name, vscode.CompletionItemKind.Property);
-            item.detail = `enum slot ${e.slot}`;
-            item.insertText = new vscode.SnippetString(`${e.name}=\${1}`);
-            argItems.push(item);
+            const name = String(e.name || "");
+            if (!name) continue;
+            const nameRu = translitToRuIdent(name);
+
+            const addItem = (label, insertName, detailExtra) => {
+              if (keyPrefixNorm && !normKey(label).startsWith(keyPrefixNorm)) return;
+              const item = new vscode.CompletionItem(label, vscode.CompletionItemKind.Property);
+              item.detail = `enum slot ${e.slot}${detailExtra ? ` (${detailExtra})` : ""}`;
+              item.insertText = new vscode.SnippetString(`${insertName}=\${1}`);
+              argItems.push(item);
+            };
+
+            addItem(name, name, null);
+            if (nameRu && nameRu !== name) addItem(nameRu, nameRu, `alias for ${name}`);
           }
           if (argItems.length) {
             output.appendLine(`[completion#${id}] arg keys ${call.module}.${entry.funcName} items=${argItems.length}`);
