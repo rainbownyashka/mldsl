@@ -9,13 +9,37 @@ import time
 from pathlib import Path
 
 
+def _resolve_executable(name: str) -> str:
+    candidates = [name]
+    if sys.platform.startswith("win"):
+        candidates = [name, f"{name}.cmd", f"{name}.exe", f"{name}.bat"]
+    for candidate in candidates:
+        found = shutil.which(candidate)
+        if found:
+            return found
+    return name
+
+
+def _missing_cmd_hint(name: str) -> str:
+    if name in {"npm", "npx"}:
+        return (
+            "Node.js/npm not found in PATH. Install Node.js or use --skip-vsix. "
+            "In GitHub Actions use actions/setup-node."
+        )
+    return f"required command not found: {name}"
+
+
 def run(cmd: list[str], *, cwd: Path | None = None) -> None:
+    if not cmd:
+        raise SystemExit("internal error: empty command")
+    resolved = [*cmd]
+    resolved[0] = _resolve_executable(resolved[0])
     where = f" (cwd={cwd})" if cwd else ""
-    print(f"+{' '}{' '.join(cmd)}{where}")
+    print(f"+{' '}{' '.join(resolved)}{where}")
     try:
-        subprocess.check_call(cmd, cwd=str(cwd) if cwd else None)
+        subprocess.check_call(resolved, cwd=str(cwd) if cwd else None)
     except FileNotFoundError:
-        raise SystemExit(f"required command not found: {cmd[0]}")
+        raise SystemExit(_missing_cmd_hint(cmd[0]))
 
 
 def py_compile_scripts(repo: Path) -> None:

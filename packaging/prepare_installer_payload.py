@@ -7,10 +7,38 @@ import sys
 from pathlib import Path
 
 
+def _resolve_executable(name: str) -> str:
+    candidates = [name]
+    if sys.platform.startswith("win"):
+        candidates = [name, f"{name}.cmd", f"{name}.exe", f"{name}.bat"]
+    for candidate in candidates:
+        found = shutil.which(candidate)
+        if found:
+            return found
+    return name
+
+
+def _missing_cmd_hint(name: str) -> str:
+    if name in {"npm", "npx"}:
+        return (
+            "Node.js/npm not found in PATH. "
+            "For CI use actions/setup-node, for local install Node.js, "
+            "or run with --no-vsix if you intentionally skip extension packaging."
+        )
+    return f"required command not found: {name}"
+
+
 def run(cmd: list[str], *, cwd: Path | None = None) -> None:
+    if not cmd:
+        raise SystemExit("internal error: empty command")
+    resolved = [*cmd]
+    resolved[0] = _resolve_executable(resolved[0])
     prefix = f"+ (cwd={cwd}) " if cwd else "+ "
-    print(prefix + " ".join(cmd))
-    subprocess.check_call(cmd, cwd=str(cwd) if cwd else None)
+    print(prefix + " ".join(resolved))
+    try:
+        subprocess.check_call(resolved, cwd=str(cwd) if cwd else None)
+    except FileNotFoundError:
+        raise SystemExit(_missing_cmd_hint(cmd[0]))
 
 
 def copy_tree(src: Path, dst: Path) -> None:
