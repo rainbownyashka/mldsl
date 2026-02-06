@@ -33,8 +33,8 @@ ArchitecturesInstallIn64BitMode=x64compatible
 
 [Tasks]
 Name: "mldslcore"; Description: "Установить MLDSL (компилятор, docs, расширение)"; GroupDescription: "Опции"; Flags: checkedonce
-Name: "addpath"; Description: "Добавить MLDSL в PATH (чтобы вызывать `mldsl` из любой папки)"; GroupDescription: "Опции"; Flags: checkedonce
-Name: "contextmenu"; Description: "Добавить пункт в контекстное меню для .mldsl (компиляция в plan.json)"; GroupDescription: "Опции"; Flags: checkedonce
+Name: "addpath"; Description: "Добавить MLDSL в PATH (чтобы вызывать `mldsl` из любой папки)"; GroupDescription: "Опции"; Flags: unchecked
+Name: "contextmenu"; Description: "Добавить пункт в контекстное меню для .mldsl (компиляция в plan.json)"; GroupDescription: "Опции"; Flags: unchecked
 Name: "vscodeext"; Description: "Установить расширение для VS Code (если VS Code найден)"; GroupDescription: "Опции"; Flags: checkedonce
 Name: "bettercode"; Description: "Скачать/обновить мод BetterCode в %APPDATA%\.minecraft\mods"; GroupDescription: "Опции"
 
