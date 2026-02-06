@@ -108,10 +108,16 @@ begin
     '$repo = "rainbownyashka/mlbettercode"'#13#10 +
     '$api = "https://api.github.com/repos/" + $repo + "/releases/latest"'#13#10 +
     '$release = Invoke-RestMethod -Uri $api -Headers @{ "User-Agent" = "MLDSL-Installer" }'#13#10 +
-    '$asset = $release.assets | Where-Object { $_.name -match "bettercode.*\.jar$" } | Select-Object -First 1'#13#10 +
+    '$tag = [string]$release.tag_name'#13#10 +
+    '$expected = if ($tag -match "^v") { "bettercode-" + $tag.Substring(1) + ".jar" } else { "bettercode-" + $tag + ".jar" }'#13#10 +
+    '$asset = $release.assets | Where-Object { $_.name -ieq $expected } | Select-Object -First 1'#13#10 +
+    'if (-not $asset) {'#13#10 +
+    '  $asset = $release.assets | Where-Object { $_.name -match "^bettercode-.*\.jar$" } | Sort-Object -Property name -Descending | Select-Object -First 1'#13#10 +
+    '}'#13#10 +
     'if (-not $asset) { throw "No BetterCode jar asset found in latest release." }'#13#10 +
     '$mods = Join-Path $env:APPDATA ".minecraft\mods"'#13#10 +
     'New-Item -ItemType Directory -Force -Path $mods | Out-Null'#13#10 +
+    'Get-ChildItem -Path $mods -Filter "bettercode-*.jar" -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue'#13#10 +
     '$outPath = Join-Path $mods $asset.name'#13#10 +
     'Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $outPath -UseBasicParsing'#13#10 +
     'Write-Output ("Installed: " + $outPath)'#13#10;
