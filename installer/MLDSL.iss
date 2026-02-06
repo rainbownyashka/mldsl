@@ -32,6 +32,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Tasks]
+Name: "mldslcore"; Description: "Установить MLDSL (компилятор, docs, расширение)"; GroupDescription: "Опции"; Flags: checkedonce
 Name: "addpath"; Description: "Добавить MLDSL в PATH (чтобы вызывать `mldsl` из любой папки)"; GroupDescription: "Опции"; Flags: checkedonce
 Name: "contextmenu"; Description: "Добавить пункт в контекстное меню для .mldsl (компиляция в plan.json)"; GroupDescription: "Опции"; Flags: checkedonce
 Name: "vscodeext"; Description: "Установить расширение для VS Code (если VS Code найден)"; GroupDescription: "Опции"; Flags: checkedonce
@@ -39,29 +40,29 @@ Name: "bettercode"; Description: "Скачать/обновить мод BetterC
 
 [Files]
 ; App (Nuitka standalone folder)
-Source: "{#BuildDir}\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BuildDir}\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: mldslcore
 
 ; Static assets used by the compiler (read-only)
-Source: "{#AssetsDir}\\*"; DestDir: "{app}\\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#AssetsDir}\\*"; DestDir: "{app}\\assets"; Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: mldslcore
 
 ; Seed generated out/ so user doesn't need python/repo. Goes to %LOCALAPPDATA%\\MLDSL\\out
-Source: "{#SeedOutDir}\\*"; DestDir: "{localappdata}\\MLDSL\\out"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SeedOutDir}\\*"; DestDir: "{localappdata}\\MLDSL\\out"; Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: mldslcore
 
 ; Optional VS Code extension
 #if NoVsix == 0
-Source: "{#VsixPath}"; DestDir: "{tmp}"; DestName: "mldsl-helper.vsix"; Flags: ignoreversion deleteafterinstall; Tasks: vscodeext
+Source: "{#VsixPath}"; DestDir: "{tmp}"; DestName: "mldsl-helper.vsix"; Flags: ignoreversion deleteafterinstall; Tasks: mldslcore vscodeext
 #endif
 
 [Icons]
-Name: "{autoprograms}\\{#AppName}"; Filename: "{app}\\{#AppExeName}"
+Name: "{autoprograms}\\{#AppName}"; Filename: "{app}\\{#AppExeName}"; Tasks: mldslcore
 
 [Registry]
 ; PATH
-Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Tasks: addpath; Check: NeedsAddPath(ExpandConstant('{app}'))
+Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Tasks: mldslcore addpath; Check: NeedsAddPath(ExpandConstant('{app}'))
 
 ; Context menu: compile current .mldsl into %APPDATA%\\.minecraft\\plan.json
-Root: HKCU; Subkey: "Software\\Classes\\SystemFileAssociations\\.mldsl\\shell\\MLDSL_CompileToPlan"; ValueType: string; ValueName: ""; ValueData: "MLDSL: Скомпилировать в plan.json"; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\\Classes\\SystemFileAssociations\\.mldsl\\shell\\MLDSL_CompileToPlan\\command"; ValueType: string; ValueName: ""; ValueData: """{app}\\{#AppExeName}"" compile ""%%1"" --plan ""{userappdata}\\.minecraft\\plan.json"""; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\\Classes\\SystemFileAssociations\\.mldsl\\shell\\MLDSL_CompileToPlan"; ValueType: string; ValueName: ""; ValueData: "MLDSL: Скомпилировать в plan.json"; Tasks: mldslcore contextmenu
+Root: HKCU; Subkey: "Software\\Classes\\SystemFileAssociations\\.mldsl\\shell\\MLDSL_CompileToPlan\\command"; ValueType: string; ValueName: ""; ValueData: """{app}\\{#AppExeName}"" compile ""%%1"" --plan ""{userappdata}\\.minecraft\\plan.json"""; Tasks: mldslcore contextmenu
 
 [Code]
 function NeedsAddPath(Dir: string): Boolean;
@@ -137,7 +138,7 @@ var
   Vsix: string;
   ResultCode: Integer;
 begin
-  if (CurStep = ssPostInstall) and WizardIsTaskSelected('vscodeext') then begin
+  if (CurStep = ssPostInstall) and WizardIsTaskSelected('mldslcore') and WizardIsTaskSelected('vscodeext') then begin
     CodeExe := FindVSCodeExe();
     Vsix := ExpandConstant('{tmp}\mldsl-helper.vsix');
 
