@@ -13,6 +13,9 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-latest
+    env:
+      NUITKA_CACHE_DIR: ${{ github.workspace }}\.cache\nuitka
+      CLCACHE_DIR: ${{ github.workspace }}\.cache\clcache
     permissions:
       contents: write
     steps:
@@ -37,11 +40,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            C:\Users\runneradmin\AppData\Local\Nuitka\Nuitka\Cache
-            C:\Users\runneradmin\AppData\Local\clcache
+            ${{ env.NUITKA_CACHE_DIR }}
+            ${{ env.CLCACHE_DIR }}
           key: nuitka-win-${{ runner.os }}-py312-v2-${{ hashFiles('mldsl_cli.py', 'mldsl_paths.py', 'mldsl_compile.py', 'mldsl_exportcode.py', 'mldsl_cli.py', 'packaging/prepare_installer_payload.py', 'packaging/requirements-build.txt') }}
           restore-keys: |
             nuitka-win-${{ runner.os }}-py312-v2-
+
+      - name: Prepare cache directories
+        run: |
+          New-Item -ItemType Directory -Force -Path "${{ env.NUITKA_CACHE_DIR }}" | Out-Null
+          New-Item -ItemType Directory -Force -Path "${{ env.CLCACHE_DIR }}" | Out-Null
 
       - name: Install build deps
         run: |
