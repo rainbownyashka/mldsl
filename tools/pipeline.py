@@ -124,7 +124,20 @@ def build_vsix(repo: Path, *, out_dir: Path) -> Path:
 
 
 def has_iscc() -> bool:
-    return shutil.which("iscc") is not None
+    if shutil.which("iscc"):
+        return True
+    fallback = Path.home() / "AppData" / "Local" / "Programs" / "Inno Setup 6" / "ISCC.exe"
+    return fallback.exists()
+
+
+def resolve_iscc() -> str:
+    from_path = shutil.which("iscc")
+    if from_path:
+        return from_path
+    fallback = Path.home() / "AppData" / "Local" / "Programs" / "Inno Setup 6" / "ISCC.exe"
+    if fallback.exists():
+        return str(fallback)
+    return "iscc"
 
 
 def build_release(repo: Path, *, app_version: str, allow_missing_iscc: bool) -> None:
@@ -139,7 +152,7 @@ def build_release(repo: Path, *, app_version: str, allow_missing_iscc: bool) -> 
 
     run(
         [
-            "iscc",
+            resolve_iscc(),
             str(repo / "installer" / "MLDSL.iss"),
             f"/DAppVersion={app_version}",
         ]

@@ -10,10 +10,16 @@
 #define AssetsDir "..\\dist\\payload\\assets"
 #define SeedOutDir "..\\dist\\payload\\seed_out"
 #define VsixPath "..\\dist\\payload\\mldsl-helper.vsix"
+#define ModsDir "..\\dist\\payload\\mods"
 
 #ifndef NoVsix
   ; Set to 1 to build installer without bundling the VSIX (dev builds).
   #define NoVsix 0
+#endif
+
+#ifndef DevInstaller
+  ; Set to 1 for offline/dev installer that can install local BetterCode jars from payload/mods.
+  #define DevInstaller 0
 #endif
 
 [Setup]
@@ -36,7 +42,12 @@ Name: "mldslcore"; Description: "Установить MLDSL (компилято�
 Name: "addpath"; Description: "Добавить MLDSL в PATH (чтобы вызывать `mldsl` из любой папки)"; GroupDescription: "Опции"; Flags: unchecked
 Name: "contextmenu"; Description: "Добавить пункт в контекстное меню для .mldsl (компиляция в plan.json)"; GroupDescription: "Опции"; Flags: unchecked
 Name: "vscodeext"; Description: "Установить расширение для VS Code (если VS Code найден)"; GroupDescription: "Опции"; Flags: checkedonce
+#if DevInstaller
+Name: "bettercode_local"; Description: "Установить DEV мод BetterCode из установщика (без скачивания)"; GroupDescription: "Опции"; Flags: checkedonce
+Name: "bettercode"; Description: "Скачать/обновить мод BetterCode в %APPDATA%\\.minecraft\\mods"; GroupDescription: "Опции"; Flags: unchecked
+#else
 Name: "bettercode"; Description: "Скачать/обновить мод BetterCode в %APPDATA%\.minecraft\mods"; GroupDescription: "Опции"
+#endif
 
 [Files]
 ; App (Nuitka standalone folder)
@@ -51,6 +62,11 @@ Source: "{#SeedOutDir}\\*"; DestDir: "{localappdata}\\MLDSL\\out"; Flags: ignore
 ; Optional VS Code extension
 #if NoVsix == 0
 Source: "{#VsixPath}"; DestDir: "{tmp}"; DestName: "mldsl-helper.vsix"; Flags: ignoreversion deleteafterinstall; Tasks: mldslcore vscodeext
+#endif
+
+; Optional local BetterCode jars for offline/dev installer
+#ifexist "{#ModsDir}\\*"
+Source: "{#ModsDir}\\*"; DestDir: "{userappdata}\\.minecraft\\mods"; Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: bettercode_local
 #endif
 
 [Icons]

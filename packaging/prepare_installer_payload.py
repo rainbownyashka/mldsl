@@ -58,6 +58,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Do not build VS Code extension VSIX into dist/payload (dev mode).",
     )
+    p.add_argument(
+        "--mods-from",
+        default="",
+        help=(
+            "Optional local BetterCode repo path. If set, copies built mod jars into "
+            "dist/payload/mods for offline/dev installer."
+        ),
+    )
     return p.parse_args(argv)
 
 
@@ -69,6 +77,7 @@ def main() -> int:
     assets_dir = payload / "assets"
     seed_out_dir = payload / "seed_out"
     vsix_path = payload / "mldsl-helper.vsix"
+    mods_dir = payload / "mods"
 
     payload.mkdir(parents=True, exist_ok=True)
 
@@ -152,11 +161,35 @@ def main() -> int:
         if not vsix_path.exists():
             raise SystemExit(f"VSIX output not found: {vsix_path}")
 
+    # 6) Optional local BetterCode jars for dev/offline installer.
+    if args.mods_from:
+        mods_src = Path(args.mods_from).resolve()
+        if not mods_src.exists():
+            raise SystemExit(f"--mods-from path not found: {mods_src}")
+        candidates = [
+            mods_src / "build" / "libs" / "bettercode-1.0.9.jar",
+            mods_src / "modern" / "fabric120" / "build" / "libs" / "bettercode-fabric120-0.1.0-fabric120.jar",
+            mods_src / "modern" / "fabric121" / "build" / "libs" / "bettercode-fabric121-0.1.0-fabric121.jar",
+        ]
+        found = [p for p in candidates if p.exists()]
+        if not found:
+            raise SystemExit(
+                "No built BetterCode jars found under --mods-from. "
+                "Build mod first (e.g. python tools/build_matrix.py all --task build)."
+            )
+        if mods_dir.exists():
+            shutil.rmtree(mods_dir)
+        mods_dir.mkdir(parents=True, exist_ok=True)
+        for jar in found:
+            shutil.copy2(jar, mods_dir / jar.name)
+
     print("")
     print("OK: prepared payload at:", payload)
     print("- app:", app_dir)
     print("- assets:", assets_dir)
     print("- seed_out:", seed_out_dir)
+    if args.mods_from:
+        print("- mods:", mods_dir)
     if not args.no_vsix:
         print("- vsix:", vsix_path)
     print("")
