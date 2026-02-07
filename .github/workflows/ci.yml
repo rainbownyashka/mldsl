@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate pipeline fast (no smoke/no vsix)
+        run: |
+          python tools/pipeline.py fast --skip-smoke --skip-vsix
+
+      - name: Unit tests
+        run: |
+          python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Docs gate
+        run: |
+          $docs = @(
+            'docs/AGENT_RUNBOOK.md',
+            'docs/KPLUS_PARSING.md',
+            'docs/ARCHITECTURE.md',
+            'docs/CONTRIBUTING.md',
+            'docs/ERRORS.md'
+          )
+          foreach ($d in $docs) {
+            if (!(Test-Path $d)) { throw "missing required doc: $d" }
+          }
