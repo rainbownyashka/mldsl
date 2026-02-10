@@ -940,7 +940,7 @@ function activate(context) {
       }
 
       try {
-        await vscode.env.openExternal(vscode.Uri.parse("https://mldsl-hub.pages.dev/"));
+        await vscode.env.openExternal(vscode.Uri.parse("https://mldsl-hub.vercel.app/"));
       } catch {}
 
       try {
