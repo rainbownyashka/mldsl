@@ -2,6 +2,13 @@
 
 MLDSL — язык и компилятор для Mineland K+ (Minecraft), который компилирует `.mldsl` в `plan.json` для мода BetterCode (MLBetterCode) и команды `/mldsl run`.
 
+## SoT документация
+
+- Runbook: `docs/AGENT_RUNBOOK.md`
+- Status: `docs/STATUS.md`
+- Backlog: `docs/TODO.md`
+- Cross-project map: `docs/CROSS_PROJECT_INDEX.md`
+
 ## Документация (RU)
 
 - Быстрый старт: `docs/QUICKSTART_RU.md`

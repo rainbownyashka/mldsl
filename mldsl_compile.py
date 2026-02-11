@@ -537,10 +537,10 @@ def wrap_value(mode: str | None, value: str) -> str:
 # - keep calls/modules stricter for now (no % in module/function names)
 NAME_RE = r"[%%\w\u0400-\u04FF]+"
 CALL_RE = re.compile(r"^\s*([\w\u0400-\u04FF]+)\.([\w\u0400-\u04FF]+)\s*\((.*)\)\s*;?\s*$")
-# event(<name>) { ... }
+# event(<name>) { ... } and empty event() { ... }
 # - allow spaces in names (e.g. "Событие чата")
 # - allow quotes: event("Правый клик")
-EVENT_RE = re.compile(r'^\s*event\s*\(\s*(?:"([^"]+)"|([^)]+?))\s*\)\s*\{\s*$', re.I)
+EVENT_RE = re.compile(r'^\s*event\s*\(\s*(?:"([^"]*)"|([^)]*?))\s*\)\s*\{\s*$', re.I)
 BARE_CALL_RE = re.compile(r"^\s*([\w\u0400-\u04FF]+)\s*\((.*)\)\s*;?\s*$")
 FUNC_RE = re.compile(
     rf"^\s*(?:func|function|def|функция)\s*(?:\(\s*)?([\w\u0400-\u04FF]+)(?:\s*\))?(?:\s*\(\s*([^\)]*)\s*\))?\s*\{{\s*$",
@@ -882,6 +882,22 @@ def compile_line(api: dict, line: str):
     if not m:
         return None
     module, func, arg_str = m.group(1), m.group(2), m.group(3)
+    # Pseudo actions for empty-sign blocks from exportcode translator.
+    # They preserve flow/brace semantics and compile to valid plan blocks
+    # with empty action name and no args.
+    if (func or "").strip().lower() == "noaction":
+        mod = (module or "").strip().lower()
+        if mod == "player":
+            return ([], {"sign1": "Действие игрока", "sign2": "", "menu": "", "gui": ""})
+        if mod == "game":
+            return ([], {"sign1": "Действие игры", "sign2": "", "menu": "", "gui": ""})
+        if mod == "if_player":
+            return ([], {"sign1": "Если игрок", "sign2": "", "menu": "", "gui": ""})
+        if mod == "if_game":
+            return ([], {"sign1": "Если игра", "sign2": "", "menu": "", "gui": ""})
+        if mod == "if_value":
+            return ([], {"sign1": "Если переменная", "sign2": "", "menu": "", "gui": ""})
+        raise ValueError(f"Unknown noaction module: {module}")
     canon, spec = find_action(api, module, func)
     if not spec:
         raise ValueError(f"Unknown action: {module}.{func}")
@@ -1902,16 +1918,21 @@ def compile_entries(path: Path) -> list[dict]:
             return
 
         if current_kind == "event":
-            ev_name = event_variant_to_name(current_name or "")
-            nk = norm_key(ev_name)
-            if known_events and nk in known_events:
-                block, menu_name, expected_sign2 = known_events[nk]
-                entries.append({"block": block, "name": f"{menu_name}||{expected_sign2}", "args": "no"})
-            elif known_events:
-                raise ValueError(f"неизвестное событие: {ev_name}")
+            ev_raw = (current_name or "").strip()
+            if not ev_raw:
+                # Placeholder from exportcode empty sign blocks.
+                entries.append({"block": "diamond_block", "name": "Событие игрока||", "args": "no"})
             else:
-                # Fallback when no catalog is available.
-                entries.append({"block": "diamond_block", "name": ev_name, "args": "no"})
+                ev_name = event_variant_to_name(ev_raw)
+                nk = norm_key(ev_name)
+                if known_events and nk in known_events:
+                    block, menu_name, expected_sign2 = known_events[nk]
+                    entries.append({"block": block, "name": f"{menu_name}||{expected_sign2}", "args": "no"})
+                elif known_events:
+                    raise ValueError(f"неизвестное событие: {ev_name}")
+                else:
+                    # Fallback when no catalog is available.
+                    entries.append({"block": "diamond_block", "name": ev_name, "args": "no"})
         elif current_kind == "func":
             entries.append({"block": "lapis_block", "name": (current_name or ""), "args": "no"})
         elif current_kind == "loop":

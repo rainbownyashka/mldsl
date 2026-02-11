@@ -16,83 +16,98 @@ TRANSLATIONS_PATH = action_translations_path()
 TRANSLATIONS_BY_ID_PATH = action_translations_by_id_path()
 
 
+_MOJIBAKE_MAP = {
+        "à": "а",
+        "á": "б",
+        "â": "в",
+        "ã": "г",
+        "ä": "д",
+        "å": "е",
+        "¸": "ё",
+        "æ": "ж",
+        "ç": "з",
+        "è": "и",
+        "é": "й",
+        "ê": "к",
+        "ë": "л",
+        "ì": "м",
+        "í": "н",
+        "î": "о",
+        "ï": "п",
+        "ð": "р",
+        "ñ": "с",
+        "ò": "т",
+        "ó": "у",
+        "ô": "ф",
+        "õ": "х",
+        "ö": "ц",
+        "ø": "ш",
+        "ù": "щ",
+        "ú": "ъ",
+        "û": "ы",
+        "ü": "ь",
+        "ý": "э",
+        "þ": "ю",
+        "ÿ": "я",
+        "À": "А",
+        "Á": "Б",
+        "Â": "В",
+        "Ã": "Г",
+        "Ä": "Д",
+        "Å": "Е",
+        "¨": "Ё",
+        "Æ": "Ж",
+        "Ç": "З",
+        "È": "И",
+        "É": "Й",
+        "Ê": "К",
+        "Ë": "Л",
+        "Ì": "М",
+        "Í": "Н",
+        "Î": "О",
+        "Ï": "П",
+        "Ð": "Р",
+        "Ñ": "С",
+        "Ò": "Т",
+        "Ó": "У",
+        "Ô": "Ф",
+        "Õ": "Х",
+        "Ö": "Ц",
+        "×": "Ч",
+        "Ø": "Ш",
+        "Ù": "Щ",
+        "Ú": "Ъ",
+        "Û": "Ы",
+        "Ü": "Ь",
+        "Ý": "Э",
+        "Þ": "Ю",
+        "ß": "Я",
+}
+_MOJIBAKE_TRANS = str.maketrans(_MOJIBAKE_MAP)
+_MOJIBAKE_CHARS = set(_MOJIBAKE_MAP.keys())
+
+
+def _looks_like_mojibake(text: str) -> bool:
+    if not text:
+        return False
+    # Do not touch normal mathematical strings with division/multiplication.
+    if "÷" in text:
+        return False
+    if any("\u0400" <= ch <= "\u04FF" for ch in text):
+        # Already contains Cyrillic, most likely valid text.
+        return False
+    hit = sum(1 for ch in text if ch in _MOJIBAKE_CHARS)
+    return hit >= 2
+
+
 def strip_colors(text: str) -> str:
     if not text:
         return ""
     text = re.sub(r"\u00a7.", "", text)
     text = re.sub(r"[\x00-\x1f]", "", text)
-    # Fix common mojibake where cp1251 bytes were decoded as latin-1 (àáâ...)
-    text = text.translate(
-        str.maketrans(
-            {
-                "à": "а",
-                "á": "б",
-                "â": "в",
-                "ã": "г",
-                "ä": "д",
-                "å": "е",
-                "¸": "ё",
-                "æ": "ж",
-                "ç": "з",
-                "è": "и",
-                "é": "й",
-                "ê": "к",
-                "ë": "л",
-                "ì": "м",
-                "í": "н",
-                "î": "о",
-                "ï": "п",
-                "ð": "р",
-                "ñ": "с",
-                "ò": "т",
-                "ó": "у",
-                "ô": "ф",
-                "õ": "х",
-                "ö": "ц",
-                "ø": "ш",
-                "ù": "щ",
-                "ú": "ъ",
-                "û": "ы",
-                "ü": "ь",
-                "ý": "э",
-                "þ": "ю",
-                "ÿ": "я",
-                "À": "А",
-                "Á": "Б",
-                "Â": "В",
-                "Ã": "Г",
-                "Ä": "Д",
-                "Å": "Е",
-                "¨": "Ё",
-                "Æ": "Ж",
-                "Ç": "З",
-                "È": "И",
-                "É": "Й",
-                "Ê": "К",
-                "Ë": "Л",
-                "Ì": "М",
-                "Í": "Н",
-                "Î": "О",
-                "Ï": "П",
-                "Ð": "Р",
-                "Ñ": "С",
-                "Ò": "Т",
-                "Ó": "У",
-                "Ô": "Ф",
-                "Õ": "Х",
-                "Ö": "Ц",
-                "×": "Ч",
-                "Ø": "Ш",
-                "Ù": "Щ",
-                "Ú": "Ъ",
-                "Û": "Ы",
-                "Ü": "Ь",
-                "Ý": "Э",
-                "Þ": "Ю",
-                "ß": "Я",
-            }
-        )
-    )
+    # Fix common mojibake only when it really looks broken.
+    if _looks_like_mojibake(text):
+        text = text.translate(_MOJIBAKE_TRANS)
     return text
 
 

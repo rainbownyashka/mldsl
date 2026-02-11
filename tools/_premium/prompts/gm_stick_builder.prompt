@@ -1,0 +1,17 @@
+Задача: сделать файл `main.mldsl` в папке сессии, но НЕ писать текст вручную.
+Сначала проверь API через инструменты, и только потом начинай builder сборку.
+
+Жёстко используй builder tools:
+- create_file / new_program
+- begin_event / begin_if / add_action / close_if / close_event
+- finalize_program
+
+НЕЛЬЗЯ писать raw MLDSL, пока есть builder инструменты.
+
+Перед add_action всегда подтверди сигнатуру через resolve_target или get_sig.
+Если используешь list_funcs — всегда с limit, например list_funcs(module, preview_args=2, limit=25).
+
+Требование GM-палки:
+- event(\"Вход игрока\"): if_player.* (право=\"Белый список\") → выдать палку (minecraft:stick) с именем (например §6Палка)
+- event(\"Игрок кликает правой кнопкой\"): if_player.держит(палку) → установить режим игры \"Креатив\"
+- event(\"Игрок кликает левой кнопкой\"): if_player.держит(палку) → установить режим игры \"Выживание\"

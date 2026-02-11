@@ -30,8 +30,15 @@ jobs:
             'docs/KPLUS_PARSING.md',
             'docs/ARCHITECTURE.md',
             'docs/CONTRIBUTING.md',
-            'docs/ERRORS.md'
+            'docs/ERRORS.md',
+            'docs/STATUS.md',
+            'docs/TODO.md',
+            'docs/CROSS_PROJECT_INDEX.md'
           )
           foreach ($d in $docs) {
             if (!(Test-Path $d)) { throw "missing required doc: $d" }
           }
+
+      - name: Docs scope guard
+        run: |
+          python tools/check_docs_scope.py
