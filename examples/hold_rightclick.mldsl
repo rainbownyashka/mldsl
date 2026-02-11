@@ -1,0 +1,5 @@
+event("Игрок кликает правой кнопкой") {
+    if_player.держит(item("minecraft:wooden_axe")) {
+        player.message("ok")
+    }
+}

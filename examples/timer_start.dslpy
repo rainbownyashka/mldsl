@@ -1,0 +1,31 @@
+import dsl
+
+@dsl.event
+def join(event="Вход игрока"):
+    players = players + 1
+    with dsl.if_(players >= 2):
+        with dsl.if_(started < 1):
+            started = 1
+            timer = 10
+            start_loop("game_start_timer")
+
+@dsl.event
+def leave(event="Выход игрока"):
+    with dsl.if_(players > 0):
+        players = players - 1
+
+@dsl.loop(every=20)
+def game_start_timer():
+    with dsl.if_(players < 2):
+        stop_loop("game_start_timer")
+        started = 0
+    with dsl.if_(players >= 2):
+        with dsl.select.allplayers():
+            dsl.player.title("Старт через %var(timer)%", "", 0, 20, 0)
+        with dsl.if_(timer <= 0):
+            stop_loop("game_start_timer")
+            with dsl.select.allplayers():
+                dsl.player.message("Игра началась!")
+        with dsl.if_(timer > 0):
+            timer = timer - 1
+

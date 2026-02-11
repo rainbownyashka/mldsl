@@ -36,3 +36,17 @@ tools/mldsl-vscode/*.vsix
 
 # Temporary scratch files
 tools/_tmp_*.mldsl
+
+# Local MLDSL scratch/tests in repo root (keep real examples in examples/)
+tmp_*.mldsl
+tmp_*.json
+test*.mldsl
+test*.json
+gmstick.mldsl
+
+# Local parser scratch in tools
+tools/_brace_case.*
+tools/_multi_case.*
+tools/_nested_case2.*
+tools/_order_case2.*
+tools/_tmp_export_*.plan.json

@@ -1,0 +1,85 @@
+event("Событие чата") {
+    # Требует, чтобы топорик уже записывал позиции:
+    # - %player%pos1 (LOCATION)
+    # - %player%pos2 (LOCATION)
+    #
+    # Команда:
+    #   @line
+    #
+    # Сейчас блок фиксированный: stone.
+    if if_value.tekst_nachinaetsya_na(text=%message%, text2="@line") {
+        game.otmenit_sobytie()
+
+        # Координаты pos1/pos2
+        var.get_3(loc=%player%pos1, var=%player%we_x1, var2=%player%we_y1, var3=%player%we_z1)
+        var.get_3(loc=%player%pos2, var=%player%we_x2, var2=%player%we_y2, var3=%player%we_z2)
+
+        %player%we_dx = %player%we_x2 - %player%we_x1
+        %player%we_dy = %player%we_y2 - %player%we_y1
+        %player%we_dz = %player%we_z2 - %player%we_z1
+
+        # steps = max(abs(dx), abs(dy), abs(dz))
+        var.modul(var=%player%we_absdx, num=%player%we_dx)
+        var.modul(var=%player%we_absdy, num=%player%we_dy)
+        var.modul(var=%player%we_absdz, num=%player%we_dz)
+        var.maks_chislo(var=%player%we_steps1, num=%player%we_absdx, num2=%player%we_absdy)
+        var.maks_chislo(var=%player%we_steps, num=%player%we_steps1, num2=%player%we_absdz)
+
+        # Если точки совпали — поставить 1 блок и выйти
+        if %player%we_steps < 1 {
+            game.postavit_blok(value=item(stone), loc=%player%pos1)
+        }
+
+        # Инициализация DDA (накопители)
+        if %player%we_steps >= 1 {
+            %player%we_incx = %player%we_dx / %player%we_steps
+            %player%we_incy = %player%we_dy / %player%we_steps
+            %player%we_incz = %player%we_dz / %player%we_steps
+
+            %player%we_ax = %player%we_x1
+            %player%we_ay = %player%we_y1
+            %player%we_az = %player%we_z1
+
+            var.okruglit_chislo(var=%player%we_rx, num=%player%we_ax)
+            var.okruglit_chislo(var=%player%we_ry, num=%player%we_ay)
+            var.okruglit_chislo(var=%player%we_rz, num=%player%we_az)
+
+            # we_loc = pos1 with overridden xyz (rounded)
+            var.ust_znach_v_mest(var=%player%we_loc, loc=%player%pos1, num3=%player%we_rx, num4=%player%we_ry, num5=%player%we_rz, rezhim_ustanovki_x="Замены (=)", rezhim_ustanovki_y="Замены (=)", rezhim_ustanovki_z="Замены (=)")
+
+            %player%we_i = 0
+            %player%we_line_active = 1
+
+            # Запуск цикла (глобально). Сам цикл внутри проверяет %player%we_line_active.
+            game.nachat_tsikl(text="we_line")
+        }
+    }
+}
+
+loop we_line 5 {
+    # Активно только для игрока, который запускал @line (переменные с %player%)
+    if %player%we_line_active > 0 {
+        # Пока i <= steps — ставим блок и двигаемся дальше
+        if %player%we_i <= %player%we_steps {
+            game.postavit_blok(value=item(stone), loc=%player%we_loc)
+
+            %player%we_ax = %player%we_ax + %player%we_incx
+            %player%we_ay = %player%we_ay + %player%we_incy
+            %player%we_az = %player%we_az + %player%we_incz
+
+            var.okruglit_chislo(var=%player%we_rx, num=%player%we_ax)
+            var.okruglit_chislo(var=%player%we_ry, num=%player%we_ay)
+            var.okruglit_chislo(var=%player%we_rz, num=%player%we_az)
+
+            # Обновляем место для следующего блока (перезапись xyz)
+            var.ust_znach_v_mest(var=%player%we_loc, loc=%player%we_loc, num3=%player%we_rx, num4=%player%we_ry, num5=%player%we_rz, rezhim_ustanovki_x="Замены (=)", rezhim_ustanovki_y="Замены (=)", rezhim_ustanovki_z="Замены (=)")
+
+            %player%we_i = %player%we_i + 1
+        }
+
+        # Завершение (i > steps)
+        if %player%we_i > %player%we_steps {
+            %player%we_line_active = 0
+        }
+    }
+}

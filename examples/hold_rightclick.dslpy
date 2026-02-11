@@ -1,0 +1,7 @@
+import dsl
+
+@dsl.event
+def right_click(event="Игрок кликает правой кнопкой"):
+    with dsl.if_player.держит(dsl.item("minecraft:wooden_axe")):
+        dsl.player.message("ok")
+

@@ -1,0 +1,101 @@
+import dsl
+
+players = 0
+started = 0
+
+weapon_timer = 10
+next_idx = 1
+next_name = "wooden_sword"
+
+
+def _set_next_name():
+    with dsl.if_(dsl.and_(next_idx >= 1, next_idx <= 1)):
+        next_name = "wooden_sword"
+    with dsl.if_(dsl.and_(next_idx >= 2, next_idx <= 2)):
+        next_name = "stone_sword"
+    with dsl.if_(dsl.and_(next_idx >= 3, next_idx <= 3)):
+        next_name = "iron_sword"
+    with dsl.if_(dsl.and_(next_idx >= 4, next_idx <= 4)):
+        next_name = "diamond_sword"
+
+
+def _roll_next():
+    dsl.var.random(next_idx, 1, 4)
+    _set_next_name()
+
+
+def _give_current_weapon_to_all():
+    with dsl.select.allplayers():
+        dsl.player.clear_inventory()
+        with dsl.if_(dsl.and_(next_idx >= 1, next_idx <= 1)):
+            dsl.player.place_item(item=dsl.item("minecraft:wooden_sword", count=1))
+        with dsl.if_(dsl.and_(next_idx >= 2, next_idx <= 2)):
+            dsl.player.place_item(item=dsl.item("minecraft:stone_sword", count=1))
+        with dsl.if_(dsl.and_(next_idx >= 3, next_idx <= 3)):
+            dsl.player.place_item(item=dsl.item("minecraft:iron_sword", count=1))
+        with dsl.if_(dsl.and_(next_idx >= 4, next_idx <= 4)):
+            dsl.player.place_item(item=dsl.item("minecraft:diamond_sword", count=1))
+
+
+def _pvp_on():
+    with dsl.select.allplayers():
+        dsl.player.neuyazvimost(poluchaet_uron="Да")
+
+
+def _pvp_off():
+    with dsl.select.allplayers():
+        dsl.player.neuyazvimost(poluchaet_uron="Нет")
+
+
+@dsl.event("Вход игрока")
+def on_join():
+    players = players + 1
+    with dsl.if_(players >= 2):
+        with dsl.if_(started < 1):
+            started = 1
+            weapon_timer = 10
+            _roll_next()
+            _pvp_on()
+            dsl.start_loop("weapon_cycle")
+
+
+@dsl.event("Выход игрока")
+def on_leave():
+    with dsl.if_(players > 0):
+        players = players - 1
+    with dsl.if_(players < 2):
+        with dsl.if_(started > 0):
+            started = 0
+            _pvp_off()
+            dsl.stop_loop("weapon_cycle")
+
+
+@dsl.loop(every=20)
+def weapon_cycle():
+    with dsl.if_(started < 1):
+        dsl.stop_loop("weapon_cycle")
+
+    with dsl.if_(players < 2):
+        started = 0
+        _pvp_off()
+        dsl.stop_loop("weapon_cycle")
+
+    weapon_timer = weapon_timer - 1
+
+    with dsl.if_(dsl.and_(weapon_timer >= 5, weapon_timer <= 5)):
+        with dsl.select.allplayers():
+            dsl.player.title("Следующее оружие через 5", next_name, 0, 20, 0)
+    with dsl.if_(dsl.and_(weapon_timer >= 3, weapon_timer <= 3)):
+        with dsl.select.allplayers():
+            dsl.player.title("Следующее оружие через 3", next_name, 0, 20, 0)
+    with dsl.if_(dsl.and_(weapon_timer >= 2, weapon_timer <= 2)):
+        with dsl.select.allplayers():
+            dsl.player.title("Следующее оружие через 2", next_name, 0, 20, 0)
+    with dsl.if_(dsl.and_(weapon_timer >= 1, weapon_timer <= 1)):
+        with dsl.select.allplayers():
+            dsl.player.title("Следующее оружие через 1", next_name, 0, 20, 0)
+
+    with dsl.if_(weapon_timer <= 0):
+        _give_current_weapon_to_all()
+        _roll_next()
+        weapon_timer = 10

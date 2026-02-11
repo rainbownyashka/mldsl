@@ -1,0 +1,37 @@
+event("Вход игрока") {
+    players = players + 1
+    if players >= 2 {
+        if started < 1 {
+            started = 1
+            timer = 10
+            start_loop("game_start_timer")
+        }
+    }
+}
+
+event("Выход игрока") {
+    if players > 0 {
+        players = players - 1
+    }
+}
+
+loop game_start_timer every 20 {
+    if players < 2 {
+        stop_loop("game_start_timer")
+        started = 0
+    }
+    if players >= 2 {
+        select.allplayers() {
+            player.titl("Старт через %var(timer)%", "", 0, 20, 0)
+        }
+        if timer <= 0 {
+            stop_loop("game_start_timer")
+            select.allplayers() {
+                player.message("Игра началась!")
+            }
+        }
+        if timer > 0 {
+            timer = timer - 1
+        }
+    }
+}

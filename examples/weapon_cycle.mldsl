@@ -1,0 +1,136 @@
+func(_set_next_name) {
+    if next_idx >= 1 {
+        if next_idx <= 1 {
+            next_name = "wooden_sword"
+        }
+    }
+    if next_idx >= 2 {
+        if next_idx <= 2 {
+            next_name = "stone_sword"
+        }
+    }
+    if next_idx >= 3 {
+        if next_idx <= 3 {
+            next_name = "iron_sword"
+        }
+    }
+    if next_idx >= 4 {
+        if next_idx <= 4 {
+            next_name = "diamond_sword"
+        }
+    }
+}
+
+func(_roll_next) {
+    var.random(next_idx, 1, 4)
+    _set_next_name()
+}
+
+func(_give_current_weapon_to_all) {
+    select.allplayers() {
+        player.clear_inventory()
+        if next_idx >= 1 {
+            if next_idx <= 1 {
+                player.place_item(item=item("minecraft:wooden_sword", count=1))
+            }
+        }
+        if next_idx >= 2 {
+            if next_idx <= 2 {
+                player.place_item(item=item("minecraft:stone_sword", count=1))
+            }
+        }
+        if next_idx >= 3 {
+            if next_idx <= 3 {
+                player.place_item(item=item("minecraft:iron_sword", count=1))
+            }
+        }
+        if next_idx >= 4 {
+            if next_idx <= 4 {
+                player.place_item(item=item("minecraft:diamond_sword", count=1))
+            }
+        }
+    }
+}
+
+func(_pvp_on) {
+    select.allplayers() {
+        player.neuyazvimost(poluchaet_uron="Да")
+    }
+}
+
+func(_pvp_off) {
+    select.allplayers() {
+        player.neuyazvimost(poluchaet_uron="Нет")
+    }
+}
+
+event("Вход игрока") {
+    players = players + 1
+    if players >= 2 {
+        if started < 1 {
+            started = 1
+            weapon_timer = 10
+            _roll_next()
+            _pvp_on()
+            start_loop("weapon_cycle")
+        }
+    }
+}
+
+event("Выход игрока") {
+    if players > 0 {
+        players = players - 1
+    }
+    if players < 2 {
+        if started > 0 {
+            started = 0
+            _pvp_off()
+            stop_loop("weapon_cycle")
+        }
+    }
+}
+
+loop weapon_cycle every 20 {
+    if started < 1 {
+        stop_loop("weapon_cycle")
+    }
+    if players < 2 {
+        started = 0
+        _pvp_off()
+        stop_loop("weapon_cycle")
+    }
+    weapon_timer = weapon_timer - 1
+    if weapon_timer >= 5 {
+        if weapon_timer <= 5 {
+            select.allplayers() {
+                player.titl("Следующее оружие через 5", next_name, 0, 20, 0)
+            }
+        }
+    }
+    if weapon_timer >= 3 {
+        if weapon_timer <= 3 {
+            select.allplayers() {
+                player.titl("Следующее оружие через 3", next_name, 0, 20, 0)
+            }
+        }
+    }
+    if weapon_timer >= 2 {
+        if weapon_timer <= 2 {
+            select.allplayers() {
+                player.titl("Следующее оружие через 2", next_name, 0, 20, 0)
+            }
+        }
+    }
+    if weapon_timer >= 1 {
+        if weapon_timer <= 1 {
+            select.allplayers() {
+                player.titl("Следующее оружие через 1", next_name, 0, 20, 0)
+            }
+        }
+    }
+    if weapon_timer <= 0 {
+        _give_current_weapon_to_all()
+        _roll_next()
+        weapon_timer = 10
+    }
+}
