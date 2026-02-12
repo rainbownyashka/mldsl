@@ -401,15 +401,29 @@ def _render_call_from_block(
     sign = block.get("sign") or ["", "", "", ""]
     sign1 = (sign[0] if len(sign) > 0 else "") or ""
     sign2 = (sign[1] if len(sign) > 1 else "") or ""
+    sign3 = (sign[2] if len(sign) > 2 else "") or ""
     gui = str(block.get("gui") or "").strip()
     menu = str(block.get("menu") or "").strip()
 
     s1v = _norm_key_variants(sign1)
     s2v = _norm_key_variants(sign2)
+    s3v = _norm_key_variants(sign3)
     guiv = _norm_key_variants(gui)
     menuv = _norm_key_variants(menu)
     s1n = s1v[0] if s1v else ""
     s2n = s2v[0] if s2v else ""
+    s3n = s3v[0] if s3v else ""
+
+    # Special-case: old export may encode "Вызвать функцию" directly in sign lines
+    # and miss api_aliases mapping. Normalize line 3 mode after stripping colors.
+    if any("вызвать функцию" in x for x in s1v):
+        fn_name = strip_colors(sign2).strip()
+        if fn_name:
+            mode = s3n.replace("ё", "е")
+            if "асинхронно" in mode:
+                return f"call({_json_str(fn_name)}, async=true)", warns
+            # Empty and "Синхронно" both treated as sync by default.
+            return f"call({_json_str(fn_name)})", warns
 
     def _placeholder_call_for_empty_sign() -> Optional[str]:
         # Support printer-compatible "empty sign action/condition":
