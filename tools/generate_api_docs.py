@@ -334,7 +334,11 @@ def main():
             if params:
                 lines.append("## Params")
                 for p in params:
-                    lines.append(f"- `{p.get('name','')}`: `{p.get('mode','')}` slot `{p.get('slot')}`")
+                    label = (p.get("label") or "").strip()
+                    suffix = f" — {label}" if label else ""
+                    lines.append(
+                        f"- `{p.get('name','')}`: `{p.get('mode','')}` slot `{p.get('slot')}`{suffix}"
+                    )
                 lines.append("")
 
             if enums:

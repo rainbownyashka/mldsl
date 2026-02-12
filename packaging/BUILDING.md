@@ -117,6 +117,29 @@ iscc installer/MLDSL.iss
   iscc installer/MLDSL.iss /DNoVsix=1
   ```
 
+## 3.1) Собрать DEV-установщик с локальным модом BetterCode
+
+Если нужен оффлайн/dev инсталлер, который включает локально собранные jar из репозитория мода:
+
+```powershell
+python packaging/build_dev_installer.py --mods-from k:\mymod --app-version 0.1.17-dev
+```
+
+Что делает команда:
+- готовит `dist/payload` через `prepare_installer_payload.py --use-seed --mods-from ...`
+- собирает Inno installer с флагом `/DDevInstaller=1`
+- кладет итоговый инсталлер в `dist/release`
+
+Полезные опции:
+- быстрее, без упаковки VSIX:
+  ```powershell
+  python packaging/build_dev_installer.py --mods-from k:\mymod --skip-vsix
+  ```
+- кастомная версия установщика:
+  ```powershell
+  python packaging/build_dev_installer.py --mods-from k:\mymod --app-version 0.1.17-dev
+  ```
+
 ## 4) Публикация расширения (автообновления)
 
 Если расширение опубликовано в Marketplace/OpenVSX, VS Code будет обновлять его автоматически.

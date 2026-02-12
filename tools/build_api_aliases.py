@@ -280,6 +280,29 @@ def guess_param_base(arg: dict) -> str:
     return mode or "arg"
 
 
+def extract_param_label(arg: dict) -> str:
+    """
+    Build a human-readable per-param label from GUI glass marker text.
+    Examples:
+      "Число* - Шанс выпадения шлема" -> "Шанс выпадения шлема"
+      "Текст* - Имя сущности" -> "Имя сущности"
+      "Местоположение(я)" -> "Местоположение(я)"
+    """
+    raw = strip_colors(arg.get("glassName", "")).strip()
+    if not raw:
+        return ""
+    # Remove optional marker often used in these UIs.
+    raw = raw.replace("*", "").strip()
+    if " - " in raw:
+        left, right = raw.split(" - ", 1)
+        # Only treat known type-prefixes as structural markers.
+        left_norm = left.strip().lower()
+        if left_norm in {"число", "текст", "предмет", "массив", "местоположение", "местоположение(я)", "переменная"}:
+            label = right.strip()
+            return label or raw
+    return raw
+
+
 def build_params(action: dict) -> list[dict]:
     params = []
     used = {}
@@ -288,7 +311,16 @@ def build_params(action: dict) -> list[dict]:
         used.setdefault(base, 0)
         used[base] += 1
         name = base if used[base] == 1 else f"{base}{used[base]}"
-        params.append({"name": name, "mode": arg.get("mode"), "slot": arg.get("argSlot")})
+        params.append(
+            {
+                "name": name,
+                "mode": arg.get("mode"),
+                "slot": arg.get("argSlot"),
+                # AGENT_TAG: param_label_from_glass
+                # Preserve the user-facing meaning from regallactions merged chest pages.
+                "label": extract_param_label(arg),
+            }
+        )
     return params
 
 
@@ -306,7 +338,12 @@ def build_params_fallback(sign1: str, sign2: str) -> list[dict] | None:
     if s1 == "действие игрока" and s2 == "сообщение":
         slots = [27, 28, 29, 30, 32, 33, 34, 35]
         return [
-            {"name": "text" if i == 0 else f"text{i+1}", "mode": "TEXT", "slot": slot}
+            {
+                "name": "text" if i == 0 else f"text{i+1}",
+                "mode": "TEXT",
+                "slot": slot,
+                "label": "Текст сообщения",
+            }
             for i, slot in enumerate(slots)
         ]
 
@@ -319,10 +356,10 @@ def build_params_fallback(sign1: str, sign2: str) -> list[dict] | None:
     # - num (NUMBER) at slot 40 (mode/meta)
     if s1 == "игровое действие" and s2 == "заполнить область":
         return [
-            {"name": "value", "mode": "ANY", "slot": 13},
-            {"name": "loc", "mode": "LOCATION", "slot": 19},
-            {"name": "loc2", "mode": "LOCATION", "slot": 25},
-            {"name": "num", "mode": "NUMBER", "slot": 40},
+            {"name": "value", "mode": "ANY", "slot": 13, "label": "Значение/блок"},
+            {"name": "loc", "mode": "LOCATION", "slot": 19, "label": "Первая точка области"},
+            {"name": "loc2", "mode": "LOCATION", "slot": 25, "label": "Вторая точка области"},
+            {"name": "num", "mode": "NUMBER", "slot": 40, "label": "Режим заполнения"},
         ]
 
     return None
@@ -395,6 +432,35 @@ def parse_item_display_name(raw: str) -> str:
     if "|" in s:
         s = s.split("|", 1)[0].strip()
     return s
+
+
+def strip_page_suffix(text: str) -> str:
+    """
+    Remove GUI page suffix like "(5 из 5)" to keep stable aliases.
+    """
+    s = strip_colors(text).strip()
+    s = re.sub(r"\(\s*\d+\s+из\s+\d+\s*\)\s*$", "", s, flags=re.IGNORECASE).strip()
+    return s
+
+
+def menu_short_aliases(menu: str) -> set[str]:
+    """
+    For menu strings like "Заспавнить моба/сущность" add useful short aliases:
+    - "заспавнить_моба"
+    - "заспавнить_моба_сущность"
+    """
+    out: set[str] = set()
+    base = strip_page_suffix(menu)
+    if not base:
+        return out
+    out.add(rus_ident(base))
+    out.add(englishish_alias(base))
+    if "/" in base:
+        left = base.split("/", 1)[0].strip()
+        if left:
+            out.add(rus_ident(left))
+            out.add(englishish_alias(left))
+    return {a for a in out if a}
 
 
 def load_translations():
@@ -491,7 +557,8 @@ def main():
         # Include aliases from both:
         # - sign2/gui (what player sees on sign / in docs)
         # - menu (what player clicks in the GUI item list)
-        menu_aliases = {englishish_alias(menu), rus_ident(menu)}
+        menu_aliases = menu_short_aliases(menu)
+        gui_clean = strip_page_suffix(gui)
         api[module][final_name] = {
             "id": action.get("id"),
             "sign1": sign1,
@@ -505,7 +572,8 @@ def main():
                     legacy_func,
                     englishish_alias(sign2 or gui),
                     rus_ident(sign2 or gui),
-                    rus_ident(gui),
+                    rus_ident(gui_clean),
+                    englishish_alias(gui_clean),
                     *[a for a in menu_aliases if a],
                 }
             ),

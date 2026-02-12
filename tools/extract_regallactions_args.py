@@ -152,7 +152,8 @@ def determine_mode_v2(items: dict, glass_slot: int, glass_meta: int, glass_name:
         name_clean = strip_colors(glass_name).lower()
         if ("местополож" in name_clean) or ("location" in name_clean):
             return "LOCATION"
-        for s in neighbor_slots(glass_slot):
+        max_row = (max(items.keys()) // 9) if items else 5
+        for s in neighbor_slots(glass_slot, max_row):
             it = items.get(s)
             if not it:
                 continue
@@ -171,7 +172,7 @@ def determine_mode_v2(items: dict, glass_slot: int, glass_meta: int, glass_name:
     return None
 
 
-def neighbor_slots(slot: int):
+def neighbor_slots(slot: int, max_row: int):
     row = slot // 9
     col = slot % 9
     order = [
@@ -181,13 +182,15 @@ def neighbor_slots(slot: int):
         (row - 1, col),  # up
     ]
     for r, c in order:
-        if 0 <= r < 6 and 0 <= c < 9:
+        # AGENT_TAG: merged_pages_neighbors
+        # Support merged multi-page exports where slots go beyond a single 6-row chest page.
+        if 0 <= r <= max_row and 0 <= c < 9:
             yield r * 9 + c
 
 
-def find_candidate_slot(items: dict, base_slot: int, reserved: set[int]) -> int | None:
+def find_candidate_slot(items: dict, base_slot: int, reserved: set[int], max_row: int) -> int | None:
     best_empty = None
-    for s in neighbor_slots(base_slot):
+    for s in neighbor_slots(base_slot, max_row):
         if s in reserved:
             continue
         if s not in items:
@@ -199,7 +202,7 @@ def find_candidate_slot(items: dict, base_slot: int, reserved: set[int]) -> int 
     return best_empty
 
 
-def find_candidate_slot_v2(items: dict, base_slot: int, reserved: set[int], mode: str) -> int | None:
+def find_candidate_slot_v2(items: dict, base_slot: int, reserved: set[int], mode: str, max_row: int) -> int | None:
     """
     Pick the slot the UI would edit/fill for this glass marker.
 
@@ -213,7 +216,7 @@ def find_candidate_slot_v2(items: dict, base_slot: int, reserved: set[int], mode
     """
     expected_ids = INPUT_ITEM_BY_MODE.get(mode, [])
     if expected_ids:
-        for s in neighbor_slots(base_slot):
+        for s in neighbor_slots(base_slot, max_row):
             if s in reserved:
                 continue
             it = items.get(s)
@@ -222,14 +225,14 @@ def find_candidate_slot_v2(items: dict, base_slot: int, reserved: set[int], mode
             if it.get("id") in expected_ids:
                 return s
 
-    for s in neighbor_slots(base_slot):
+    for s in neighbor_slots(base_slot, max_row):
         if s in reserved:
             continue
         if s not in items:
             return s
 
     if mode == "ITEM":
-        for s in neighbor_slots(base_slot):
+        for s in neighbor_slots(base_slot, max_row):
             if s in reserved:
                 continue
             it = items.get(s)
@@ -290,6 +293,7 @@ def build_key(record: dict, aliases: dict) -> str:
 def extract_args(record: dict):
     args = []
     items = record["items"]
+    max_row = (max(items.keys()) // 9) if items else 5
     reserved = set()
     for slot, item in sorted(items.items()):
         if item["id"] != GLASS_ID:
@@ -299,7 +303,7 @@ def extract_args(record: dict):
         mode = determine_mode_v2(items, slot, item["meta"], item["name"])
         if mode is None:
             continue
-        arg_slot = find_candidate_slot_v2(items, slot, reserved, mode)
+        arg_slot = find_candidate_slot_v2(items, slot, reserved, mode, max_row)
         if arg_slot is None:
             continue
         reserved.add(arg_slot)

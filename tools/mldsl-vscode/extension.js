@@ -572,7 +572,9 @@ function specToMarkdown(spec) {
     for (const p of spec.params) {
       const ru = translitToRuIdent(p.name);
       const extra = ru && ru !== p.name ? ` (RU: \`${ru}\`)` : "";
-      lines.push(`- \`${p.name}\`${extra} (${p.mode}) slot ${p.slot}`);
+      const label = String(p.label || "").trim();
+      const labelPart = label ? ` - ${label}` : "";
+      lines.push(`- \`${p.name}\`${extra} (${p.mode}) slot ${p.slot}${labelPart}`);
     }
   }
   if (spec.enums && spec.enums.length) {
@@ -1194,7 +1196,9 @@ function activate(context) {
             const addItem = (label, insertName, detailExtra) => {
               if (keyPrefixNorm && !normKey(label).startsWith(keyPrefixNorm)) return;
               const item = new vscode.CompletionItem(label, vscode.CompletionItemKind.Property);
-              item.detail = `param ${p.mode} slot ${p.slot}${detailExtra ? ` (${detailExtra})` : ""}`;
+              const paramLabel = String(p.label || "").trim();
+              const labelPart = paramLabel ? ` — ${paramLabel}` : "";
+              item.detail = `param ${p.mode} slot ${p.slot}${labelPart}${detailExtra ? ` (${detailExtra})` : ""}`;
               item.insertText = new vscode.SnippetString(`${insertName}=\${1}`);
               argItems.push(item);
             };
