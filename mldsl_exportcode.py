@@ -630,9 +630,12 @@ def _render_call_from_block(
 
     params = meta.get("params") or []
     enums = meta.get("enums") or []
-    if best is not candidates[0]:
+    primary_module, primary_alias, primary_meta = candidates[0]
+    if (module, alias) != (primary_module, primary_alias):
         warns.append(
-            f"автоподбор действия по сундуку: '{sign1} | {sign2}' -> '{meta.get('sign1','')} | {meta.get('sign2','')}'"
+            "автоподбор действия по сундуку: "
+            f"from={primary_module}.{primary_alias} ('{primary_meta.get('sign1','')} | {primary_meta.get('sign2','')}') "
+            f"-> to={module}.{alias} ('{meta.get('sign1','')} | {meta.get('sign2','')}')"
         )
 
     if not params and not enums:

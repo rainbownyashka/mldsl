@@ -14,6 +14,9 @@
 - exportcode empty-sign diagnostics:
   - if `sign1/sign2/gui/menu` are all empty after normalization, resolver now emits explicit "пустая табличка" warning
     instead of generic `api_aliases` mismatch.
+- exportcode chest-autopick diagnostics:
+  - resolver now reports `from=<module.alias> -> to=<module.alias>` when chest scoring switches candidate,
+    instead of ambiguous `sign1|sign2 -> sign1|sign2` logs.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.
