@@ -281,10 +281,28 @@ def _extract_lore_from_snbt(nbt: str) -> List[str]:
     return vals
 
 
+def _extract_display_name_from_snbt(nbt: str) -> str:
+    """Best-effort extraction of display.Name from SNBT item text."""
+    s = str(nbt or "")
+    if not s:
+        return ""
+    # Prefer display section if present, then read first Name:"...".
+    m_display = re.search(r"display:\{(.*?)\}", s, flags=re.DOTALL)
+    part = m_display.group(1) if m_display else s
+    m_name = re.search(r'Name:"((?:\\\\.|[^"\\\\])*)"', part)
+    if not m_name:
+        return ""
+    raw = m_name.group(1)
+    return raw.replace("\\\\", "\\").replace('\\"', '"')
+
+
 def _item_to_arg_value(mode: str, item: Dict[str, Any]) -> Tuple[Optional[str], List[str]]:
     warns: List[str] = []
     m = (mode or "").upper().strip()
-    name = strip_colors(str(item.get("displayName") or "")).strip()
+    raw_name = str(item.get("displayName") or "")
+    if not raw_name:
+        raw_name = _extract_display_name_from_snbt(str(item.get("nbt") or ""))
+    name = strip_colors(raw_name).strip()
     lore = item.get("lore") or []
     if not lore:
         lore = _extract_lore_from_snbt(str(item.get("nbt") or "")) or []
@@ -314,7 +332,15 @@ def _item_to_arg_value(mode: str, item: Dict[str, Any]) -> Tuple[Optional[str], 
         return v, warns
 
     if m == "TEXT":
+        if not name:
+            # Some exportcode books encode text as formatting-only display names,
+            # e.g. "§r§a" (green) or "§r§f" (white). In that case stripping colors
+            # yields empty text, so keep MC formatting payload (without reset).
+            fmt_only = re.sub(r"§r", "", raw_name).strip()
+            if fmt_only:
+                return _json_str(fmt_only), warns
         if not name and lore_clean:
+            # Fallback for legacy exports where text is not in display name.
             name = lore_clean[0]
         if not name:
             warns.append("TEXT: пустое имя предмета")
@@ -486,6 +512,14 @@ def _render_call_from_block(
                     continue
                 seen.add(key)
                 candidates.append(cand)
+    if not candidates and s1n:
+        seen = set()
+        for cand in idx.get(f"s1:{s1n}", []):
+            key = (cand[0], cand[1], id(cand[2]))
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(cand)
 
     if not candidates:
         ph = _placeholder_call_for_empty_sign()
@@ -516,10 +550,6 @@ def _render_call_from_block(
             items_by_slot[slot] = norm_it
 
     candidate_pool: List[Tuple[str, str, Dict[str, Any]]] = list(candidates)
-    if s1n:
-        for alt in idx.get(f"s1:{s1n}", []):
-            if alt not in candidate_pool:
-                candidate_pool.append(alt)
 
     primary_set = set((m, a, id(meta0)) for (m, a, meta0) in candidates)
 

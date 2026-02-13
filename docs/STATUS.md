@@ -8,6 +8,9 @@
 - exportcode -> mldsl conversion path
 - mldsl -> plan compile path
 - build-all pipeline with generated docs/aliases
+- exportcode action resolver safety fix:
+  - `sign1`-only fallback is now used only when no `sign1+sign2/gui/menu` candidates were found,
+  - prevents false remap like `Если игрок | Имеет право` -> `Если игрок | Режим игрока` from chest-score override.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.
