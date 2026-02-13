@@ -17,6 +17,10 @@
 - exportcode chest-autopick diagnostics:
   - resolver now reports `from=<module.alias> -> to=<module.alias>` when chest scoring switches candidate,
     instead of ambiguous `sign1|sign2 -> sign1|sign2` logs.
+- exportcode variable passthrough hardening:
+  - variable-like values are no longer stringified in `TEXT`/`NUMBER`/`LOCATION` and legacy `APPLE` modes,
+  - `magma_cream` variable markers stay variable tokens,
+  - existing `var(...)`/`var_save(...)`/`arr(...)`/`arr_save(...)` expressions are preserved as-is.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.

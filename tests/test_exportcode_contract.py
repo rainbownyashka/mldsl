@@ -110,6 +110,76 @@ class ExportcodeContractTests(unittest.TestCase):
         self.assertIn("автоподбор действия по сундуку: from=misc.кандидат_низкий", out)
         self.assertIn("-> to=misc.имя_равно", out)
 
+    def test_text_mode_keeps_variable_value_not_stringified(self):
+        api = {
+            "player": {
+                "set_text": {
+                    "sign1": "Действие игрока",
+                    "sign2": "Тест текст",
+                    "aliases": ["set_text"],
+                    "params": [{"name": "text", "slot": 9, "mode": "TEXT"}],
+                    "enums": [],
+                }
+            }
+        }
+        export_obj = {
+            "version": 2,
+            "rows": [
+                {
+                    "row": 0,
+                    "glass": {"x": 10, "y": 0, "z": 0},
+                    "blocks": [
+                        {"block": "minecraft:diamond_block", "pos": {"x": 10, "y": 1, "z": 0}, "sign": ["Событие игрока", "Вход", "", ""]},
+                        {
+                            "block": "minecraft:cobblestone",
+                            "pos": {"x": 8, "y": 1, "z": 0},
+                            "sign": ["Действие игрока", "Тест текст", "", ""],
+                            "hasChest": True,
+                            "chestItems": [{"slot": 9, "id": "minecraft:magma_cream", "displayName": "myVar"}],
+                        },
+                    ],
+                }
+            ],
+        }
+        out = exportcode_to_mldsl(export_obj, api)
+        self.assertIn("player.set_text(text=myVar)", out)
+        self.assertNotIn('text="myVar"', out)
+
+    def test_apple_mode_keeps_variable_value_not_stringified(self):
+        api = {
+            "player": {
+                "set_apple": {
+                    "sign1": "Действие игрока",
+                    "sign2": "Тест яблоко",
+                    "aliases": ["set_apple"],
+                    "params": [{"name": "value", "slot": 9, "mode": "APPLE"}],
+                    "enums": [],
+                }
+            }
+        }
+        export_obj = {
+            "version": 2,
+            "rows": [
+                {
+                    "row": 0,
+                    "glass": {"x": 10, "y": 0, "z": 0},
+                    "blocks": [
+                        {"block": "minecraft:diamond_block", "pos": {"x": 10, "y": 1, "z": 0}, "sign": ["Событие игрока", "Вход", "", ""]},
+                        {
+                            "block": "minecraft:cobblestone",
+                            "pos": {"x": 8, "y": 1, "z": 0},
+                            "sign": ["Действие игрока", "Тест яблоко", "", ""],
+                            "hasChest": True,
+                            "chestItems": [{"slot": 9, "id": "minecraft:magma_cream", "displayName": "var_save(savedName)", "lore": ["Сохраненная"]}],
+                        },
+                    ],
+                }
+            ],
+        }
+        out = exportcode_to_mldsl(export_obj, api)
+        self.assertIn("player.set_apple(value=var_save(savedName))", out)
+        self.assertNotIn('value="var_save(savedName)"', out)
+
 
 if __name__ == "__main__":
     unittest.main()

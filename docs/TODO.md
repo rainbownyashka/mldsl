@@ -11,3 +11,4 @@ Format: `id | task | priority | owner | needs_user_test | state | links`
 - COMP-007 | Add regression test for action resolver fallback precedence (`sign1+sign2` must dominate `sign1` chest-based fallback) | P1 | agent | no | in_progress | mldsl_exportcode.py, tests/
 - COMP-008 | Add regression test for empty sign diagnostics (`sign1/sign2/gui/menu` all empty -> explicit warning) | P1 | agent | no | in_progress | mldsl_exportcode.py, tests/
 - COMP-009 | Clarify chest-autopick warning by logging alias transition (`from module.alias -> to module.alias`) + regression test | P1 | agent | no | done | mldsl_exportcode.py, tests/test_exportcode_contract.py
+- COMP-010 | Preserve variable tokens in export arg reconstruction (`TEXT`/`APPLE`/mixed modes), avoid forced stringification | P0 | agent | no | done | mldsl_exportcode.py, tests/test_exportcode_contract.py

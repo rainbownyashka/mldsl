@@ -307,6 +307,27 @@ def _item_to_arg_value(mode: str, item: Dict[str, Any]) -> Tuple[Optional[str], 
     if not lore:
         lore = _extract_lore_from_snbt(str(item.get("nbt") or "")) or []
     lore_clean = [strip_colors(str(x or "")).strip() for x in lore] if isinstance(lore, list) else []
+    rid = (item.get("id") or "").lower().strip()
+
+    def _is_variable_like_name(v: str) -> bool:
+        t = (v or "").strip()
+        if not t:
+            return False
+        if re.match(r"^(var|var_save|arr|arr_save)\(.+\)$", t, flags=re.IGNORECASE):
+            return True
+        if "%" in t and re.search(r"%[^%]+%", t):
+            return True
+        return False
+
+    def _variable_passthrough() -> Optional[str]:
+        if not name:
+            return None
+        if _is_variable_like_name(name):
+            return name
+        if rid.endswith("magma_cream") or rid == "minecraft:magma_cream":
+            is_save = any("сохран" in ln.lower() for ln in lore_clean)
+            return f"var_save({name})" if is_save else name
+        return None
 
     if m == "ANY":
         # Infer from item id (server convention).
@@ -332,6 +353,10 @@ def _item_to_arg_value(mode: str, item: Dict[str, Any]) -> Tuple[Optional[str], 
         return v, warns
 
     if m == "TEXT":
+        # Do not coerce variable tokens into string text.
+        var_v = _variable_passthrough()
+        if var_v is not None:
+            return var_v, warns
         if not name:
             # Some exportcode books encode text as formatting-only display names,
             # e.g. "§r§a" (green) or "§r§f" (white). In that case stripping colors
@@ -348,6 +373,9 @@ def _item_to_arg_value(mode: str, item: Dict[str, Any]) -> Tuple[Optional[str], 
         return _json_str(name), warns
 
     if m == "NUMBER":
+        var_v = _variable_passthrough()
+        if var_v is not None:
+            return var_v, warns
         if not name:
             warns.append("NUMBER: пустое имя предмета")
             return "0", warns
@@ -372,10 +400,23 @@ def _item_to_arg_value(mode: str, item: Dict[str, Any]) -> Tuple[Optional[str], 
         return name, warns
 
     if m == "LOCATION":
+        var_v = _variable_passthrough()
+        if var_v is not None:
+            return var_v, warns
         if not name:
             warns.append("LOCATION: пустое имя предмета")
             return None, warns
         return name, warns
+
+    if m == "APPLE":
+        # Legacy mode in some exports; keep variable passthrough semantics.
+        var_v = _variable_passthrough()
+        if var_v is not None:
+            return var_v, warns
+        if not name:
+            warns.append("APPLE: пустое имя предмета")
+            return _json_str(""), warns
+        return _json_str(name), warns
 
     if m == "ITEM":
         rid = (item.get("id") or "").strip()
