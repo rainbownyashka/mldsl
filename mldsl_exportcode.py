@@ -440,6 +440,17 @@ def _render_call_from_block(
     s2n = s2v[0] if s2v else ""
     s3n = s3v[0] if s3v else ""
 
+    # Hard guard: completely empty sign/gui/menu is invalid input and should
+    # surface explicit diagnostics, not generic alias mismatch.
+    if not s1v and not s2v and not guiv and not menuv:
+        return (
+            f"# UNKNOWN: {sign1} || {sign2} (block={block.get('block')})",
+            [
+                "пустая табличка: sign1/sign2/gui/menu пустые после нормализации; "
+                "пересканируй таблички в моде и повтори export/publish"
+            ],
+        )
+
     # Special-case: old export may encode "Вызвать функцию" directly in sign lines
     # and miss api_aliases mapping. Normalize line 3 mode after stripping colors.
     if any("вызвать функцию" in x for x in s1v):

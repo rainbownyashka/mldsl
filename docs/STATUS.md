@@ -11,6 +11,9 @@
 - exportcode action resolver safety fix:
   - `sign1`-only fallback is now used only when no `sign1+sign2/gui/menu` candidates were found,
   - prevents false remap like `Если игрок | Имеет право` -> `Если игрок | Режим игрока` from chest-score override.
+- exportcode empty-sign diagnostics:
+  - if `sign1/sign2/gui/menu` are all empty after normalization, resolver now emits explicit "пустая табличка" warning
+    instead of generic `api_aliases` mismatch.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.

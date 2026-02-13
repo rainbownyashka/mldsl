@@ -9,3 +9,4 @@ Format: `id | task | priority | owner | needs_user_test | state | links`
 - COMP-005 | Add docs scope guardrail to prevent mod/site doc drift | P1 | agent | no | done | tools/check_docs_scope.py
 - COMP-006 | Lock plan/export compatibility test vectors for modern runtime-core adapters (1.16.5/1.20/1.21) | P0 | agent | yes | open | docs/CROSS_PROJECT_INDEX.md
 - COMP-007 | Add regression test for action resolver fallback precedence (`sign1+sign2` must dominate `sign1` chest-based fallback) | P1 | agent | no | in_progress | mldsl_exportcode.py, tests/
+- COMP-008 | Add regression test for empty sign diagnostics (`sign1/sign2/gui/menu` all empty -> explicit warning) | P1 | agent | no | in_progress | mldsl_exportcode.py, tests/
