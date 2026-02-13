@@ -180,6 +180,41 @@ class ExportcodeContractTests(unittest.TestCase):
         self.assertIn("player.set_apple(value=var_save(savedName))", out)
         self.assertNotIn('value="var_save(savedName)"', out)
 
+    def test_apple_mode_keeps_loc_name_raw(self):
+        api = {
+            "player": {
+                "set_apple": {
+                    "sign1": "Действие игрока",
+                    "sign2": "Тест яблоко",
+                    "aliases": ["set_apple"],
+                    "params": [{"name": "value", "slot": 9, "mode": "APPLE"}],
+                    "enums": [],
+                }
+            }
+        }
+        export_obj = {
+            "version": 2,
+            "rows": [
+                {
+                    "row": 0,
+                    "glass": {"x": 10, "y": 0, "z": 0},
+                    "blocks": [
+                        {"block": "minecraft:diamond_block", "pos": {"x": 10, "y": 1, "z": 0}, "sign": ["Событие игрока", "Вход", "", ""]},
+                        {
+                            "block": "minecraft:cobblestone",
+                            "pos": {"x": 8, "y": 1, "z": 0},
+                            "sign": ["Действие игрока", "Тест яблоко", "", ""],
+                            "hasChest": True,
+                            "chestItems": [{"slot": 9, "id": "minecraft:apple", "displayName": "LOC_NAME"}],
+                        },
+                    ],
+                }
+            ],
+        }
+        out = exportcode_to_mldsl(export_obj, api)
+        self.assertIn("player.set_apple(value=LOC_NAME)", out)
+        self.assertNotIn('value="LOC_NAME"', out)
+
 
 if __name__ == "__main__":
     unittest.main()
