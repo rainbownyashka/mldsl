@@ -13,3 +13,4 @@ Format: `id | task | priority | owner | needs_user_test | state | links`
 - COMP-009 | Clarify chest-autopick warning by logging alias transition (`from module.alias -> to module.alias`) + regression test | P1 | agent | no | done | mldsl_exportcode.py, tests/test_exportcode_contract.py
 - COMP-010 | Preserve variable tokens in export arg reconstruction (`TEXT`/`APPLE`/mixed modes), avoid forced stringification | P0 | agent | no | done | mldsl_exportcode.py, tests/test_exportcode_contract.py
 - COMP-011 | Preserve special apple location tokens (`LOC_NAME`) as raw args (no text quoting/book coercion) | P0 | agent | no | done | mldsl_exportcode.py, tests/test_exportcode_contract.py
+- COMP-012 | Normalize APPLE constants to `apple.<TOKEN>` while preserving already-prefixed values | P0 | agent | no | done | mldsl_exportcode.py, tests/test_exportcode_contract.py

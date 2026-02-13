@@ -409,15 +409,18 @@ def _item_to_arg_value(mode: str, item: Dict[str, Any]) -> Tuple[Optional[str], 
         return name, warns
 
     if m == "APPLE":
-        # Legacy mode in some exports. Apple-based values must not be force-stringified:
-        # keep variable/special tokens raw (e.g. LOC_NAME).
+        # Legacy mode in some exports.
+        # Do not stringify variable tokens; map bare apple constants to `apple.<TOKEN>`.
         var_v = _variable_passthrough()
         if var_v is not None:
             return var_v, warns
         if not name:
             warns.append("APPLE: пустое имя предмета")
             return "", warns
-        # Keep as raw token to avoid turning special apple values into text("...").
+        if name.lower().startswith("apple."):
+            return name, warns
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+            return f"apple.{name}", warns
         return name, warns
 
     if m == "ITEM":

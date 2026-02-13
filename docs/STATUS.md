@@ -21,7 +21,7 @@
   - variable-like values are no longer stringified in `TEXT`/`NUMBER`/`LOCATION` and legacy `APPLE` modes,
   - `magma_cream` variable markers stay variable tokens,
   - existing `var(...)`/`var_save(...)`/`arr(...)`/`arr_save(...)` expressions are preserved as-is.
-  - legacy `APPLE` mode no longer forces quoted text for special values (e.g. `LOC_NAME`); emits raw token.
+  - legacy `APPLE` mode maps bare constants to `apple.<TOKEN>` (e.g. `LOC_NAME` -> `apple.LOC_NAME`) and keeps `apple.<...>` values as-is.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.

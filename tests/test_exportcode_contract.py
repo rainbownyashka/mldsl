@@ -212,8 +212,42 @@ class ExportcodeContractTests(unittest.TestCase):
             ],
         }
         out = exportcode_to_mldsl(export_obj, api)
-        self.assertIn("player.set_apple(value=LOC_NAME)", out)
-        self.assertNotIn('value="LOC_NAME"', out)
+        self.assertIn("player.set_apple(value=apple.LOC_NAME)", out)
+        self.assertNotIn('value="apple.LOC_NAME"', out)
+
+    def test_apple_mode_keeps_prefixed_constant_as_is(self):
+        api = {
+            "player": {
+                "set_apple": {
+                    "sign1": "Действие игрока",
+                    "sign2": "Тест яблоко",
+                    "aliases": ["set_apple"],
+                    "params": [{"name": "value", "slot": 9, "mode": "APPLE"}],
+                    "enums": [],
+                }
+            }
+        }
+        export_obj = {
+            "version": 2,
+            "rows": [
+                {
+                    "row": 0,
+                    "glass": {"x": 10, "y": 0, "z": 0},
+                    "blocks": [
+                        {"block": "minecraft:diamond_block", "pos": {"x": 10, "y": 1, "z": 0}, "sign": ["Событие игрока", "Вход", "", ""]},
+                        {
+                            "block": "minecraft:cobblestone",
+                            "pos": {"x": 8, "y": 1, "z": 0},
+                            "sign": ["Действие игрока", "Тест яблоко", "", ""],
+                            "hasChest": True,
+                            "chestItems": [{"slot": 9, "id": "minecraft:apple", "displayName": "apple.POSCHETOTAM"}],
+                        },
+                    ],
+                }
+            ],
+        }
+        out = exportcode_to_mldsl(export_obj, api)
+        self.assertIn("player.set_apple(value=apple.POSCHETOTAM)", out)
 
 
 if __name__ == "__main__":
