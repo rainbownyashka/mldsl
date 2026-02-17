@@ -1,0 +1,62 @@
+[
+  {
+    "id": "case_if_value_var_exists",
+    "gui": "Переменная существует",
+    "category": "Переменная существует | desc",
+    "subitem": "Переменная существует | desc",
+    "signs": ["Если переменная", "Переменная существует", "", ""],
+    "args": [
+      {"mode": "VARIABLE", "argSlot": 13, "glassName": "Динамическая переменная"},
+      {"mode": "VARIABLE", "argSlot": 31, "glassName": "Динамическая переменная"}
+    ],
+    "enums": []
+  },
+  {
+    "id": "case_select_ifplayer_var_exists",
+    "gui": "Переменная существует",
+    "category": "Переменная существует | desc",
+    "subitem": "Переменная существует | desc",
+    "signs": ["Выбрать обьект", "Игрок по условию", "", ""],
+    "args": [
+      {"mode": "VARIABLE", "argSlot": 13, "glassName": "Динамическая переменная"},
+      {"mode": "VARIABLE", "argSlot": 31, "glassName": "Динамическая переменная"}
+    ],
+    "enums": []
+  },
+  {
+    "id": "case_select_ifmob_var_exists",
+    "gui": "Переменная существует",
+    "category": "Переменная существует | desc",
+    "subitem": "Переменная существует | desc",
+    "signs": ["Выбрать обьект", "Моб по условию", "", ""],
+    "args": [
+      {"mode": "VARIABLE", "argSlot": 13, "glassName": "Динамическая переменная"},
+      {"mode": "VARIABLE", "argSlot": 31, "glassName": "Динамическая переменная"}
+    ],
+    "enums": []
+  },
+  {
+    "id": "case_select_ifentity_var_exists",
+    "gui": "Переменная существует",
+    "category": "Переменная существует | desc",
+    "subitem": "Переменная существует | desc",
+    "signs": ["Выбрать обьект", "Сущность по условию", "", ""],
+    "args": [
+      {"mode": "VARIABLE", "argSlot": 13, "glassName": "Динамическая переменная"},
+      {"mode": "VARIABLE", "argSlot": 31, "glassName": "Динамическая переменная"}
+    ],
+    "enums": []
+  },
+  {
+    "id": "case_negative_two_variable_labels",
+    "gui": "Сравнить переменные",
+    "category": "Сравнить переменные | desc",
+    "subitem": "Сравнить переменные | desc",
+    "signs": ["Если переменная", "Значение равно", "", ""],
+    "args": [
+      {"mode": "VARIABLE", "argSlot": 13, "glassName": "Первая переменная"},
+      {"mode": "VARIABLE", "argSlot": 31, "glassName": "Вторая переменная"}
+    ],
+    "enums": []
+  }
+]

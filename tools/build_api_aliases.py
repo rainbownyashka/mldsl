@@ -221,7 +221,7 @@ def module_for_sign1(sign1: str) -> str:
         return "player"
     if "игровое действие" in s:
         return "game"
-    if "выбрать объект" in s:
+    if "выбрать объект" in s or "выбрать обьект" in s:
         return "select"
     if "массив" in s:
         return "array"
@@ -383,6 +383,122 @@ def merge_params(primary: list[dict], extra: list[dict]) -> list[dict]:
     return out
 
 
+def select_scope_from_sign2(sign2: str) -> str | None:
+    s2 = strip_colors(sign2).strip().lower()
+    if "игрок" in s2 and "по условию" in s2:
+        return "ifplayer"
+    if "моб" in s2 and "по условию" in s2:
+        return "ifmob"
+    if "сущност" in s2 and "по условию" in s2:
+        return "ifentity"
+    return None
+
+
+def normalize_label_key(label: str) -> str:
+    s = strip_colors(label).lower().strip()
+    s = re.sub(r"[\s_\\-]+", " ", s)
+    return s
+
+
+def canonical_base_for_mode(mode: str) -> str:
+    m = strip_colors(mode).strip().upper()
+    if m == "VARIABLE":
+        return "var"
+    if m == "TEXT":
+        return "text"
+    if m == "NUMBER":
+        return "num"
+    if m == "LOCATION":
+        return "loc"
+    if m == "ARRAY":
+        return "arr"
+    if m == "ITEM":
+        return "item"
+    if m == "ANY":
+        return "value"
+    return "arg"
+
+
+def canonicalize_param_names(params: list[dict]) -> list[dict]:
+    out = list(params or [])
+    counters: dict[str, int] = {}
+    for p in out:
+        base = canonical_base_for_mode(str((p or {}).get("mode") or ""))
+        counters[base] = counters.get(base, 0) + 1
+        p["name"] = base if counters[base] == 1 else f"{base}{counters[base]}"
+    return out
+
+
+def normalize_semantic_params(context: dict, params: list[dict]) -> tuple[list[dict], bool]:
+    """
+    Generic semantic dedup:
+    - group by (mode, normalized_label)
+    - keep minimal slot in each duplicate semantic group
+    - canonicalize param names by mode
+    """
+    out = [dict(p) for p in (params or []) if isinstance(p, dict)]
+    changed = False
+
+    # Special semantic guard: "Переменная существует" must keep only one VARIABLE input.
+    s1 = strip_colors(str(context.get("sign1") or "")).strip().lower()
+    s2 = strip_colors(str(context.get("sign2") or "")).strip().lower()
+    gui = strip_colors(str(context.get("gui") or "")).strip().lower()
+    menu = strip_colors(str(context.get("menu") or "")).strip().lower()
+    scope = select_scope_from_sign2(s2)
+    is_var_exists = (
+        (s1 == "если переменная" and s2 == "переменная существует")
+        or (
+            scope is not None
+            and (gui == "переменная существует" or menu == "переменная существует" or s2 == "переменная существует")
+        )
+    )
+    if is_var_exists:
+        vars_only = [p for p in out if str((p or {}).get("mode") or "").upper() == "VARIABLE"]
+        if len(vars_only) > 1:
+            vars_only = sorted(vars_only, key=lambda p: int((p or {}).get("slot") or 10**9))
+            keep_slot = int((vars_only[0] or {}).get("slot") or 0)
+            new_out = []
+            for p in out:
+                if str((p or {}).get("mode") or "").upper() != "VARIABLE":
+                    new_out.append(p)
+                    continue
+                if int((p or {}).get("slot") or 0) == keep_slot:
+                    p["name"] = "var"
+                    new_out.append(p)
+                else:
+                    changed = True
+            out = new_out
+
+    # Keep stable canonical names while preserving legitimate multi-slot actions.
+    canon = canonicalize_param_names(out)
+    if canon != out:
+        changed = True
+    out = canon
+    return out, changed
+
+
+def normalize_params_for_action(
+    module: str,
+    sign1: str,
+    sign2: str,
+    gui: str,
+    menu: str,
+    params: list[dict],
+) -> tuple[list[dict], bool]:
+    """
+    Normalize known duplicated parameter patterns from regallactions exports.
+    Some actions occasionally expose mirrored GUI markers that map to the same semantic input.
+    """
+    context = {
+        "module": module,
+        "sign1": sign1,
+        "sign2": sign2,
+        "gui": gui,
+        "menu": menu,
+    }
+    return normalize_semantic_params(context, params)
+
+
 def guess_enum_name(enum_item: dict) -> str:
     n = strip_colors(enum_item.get("name", "")).lower()
     if "синхрон" in n or "асинхрон" in n:
@@ -492,20 +608,10 @@ def build_enums(action: dict) -> list[dict]:
     return out
 
 
-def main():
-    ensure_dirs()
-    if not CATALOG_PATH.exists():
-        raise FileNotFoundError(
-            "Не найден `actions_catalog.json`.\n"
-            f"Путь: {CATALOG_PATH}\n"
-            "\n"
-            "Сначала запусти:\n"
-            "  python tools/build_actions_catalog.py\n"
-        )
-    catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+def build_api_from_catalog(catalog: list[dict], translations: dict | None = None) -> dict:
     api: dict[str, dict[str, dict]] = {}
     collisions: dict[str, int] = {}
-    translations = load_translations()
+    translations = translations or {}
 
     for action in catalog:
         signs = action.get("signs") or ["", "", "", ""]
@@ -518,6 +624,7 @@ def main():
         menu = parse_item_display_name(action.get("subitem") or action.get("category") or "")
         action_id = action.get("id", "")
         module = module_for_sign1(sign1)
+        scope = select_scope_from_sign2(sign2) if module == "select" else None
         var_operator_funcs = {
             "=": "set_value",
             "+": "set_sum",
@@ -550,6 +657,9 @@ def main():
         if isinstance(name_override, str) and name_override.strip().lower() in reserved_names:
             name_override = None
         final_name = name_override or func
+        # Canonical naming for conditional select domain.
+        if module == "select" and scope:
+            final_name = f"{scope}_{func}"
         if final_name in api[module]:
             collisions.setdefault(f"{module}.{final_name}", 0)
             collisions[f"{module}.{final_name}"] += 1
@@ -559,6 +669,18 @@ def main():
         # - menu (what player clicks in the GUI item list)
         menu_aliases = menu_short_aliases(menu)
         gui_clean = strip_page_suffix(gui)
+        merged_params = merge_params(
+            build_params(action) or [],
+            build_params_fallback(sign1, sign2) or [],
+        )
+        normalized_params, params_changed = normalize_params_for_action(module, sign1, sign2, gui, menu, merged_params)
+        extra_aliases = set()
+        if name_override and name_override != final_name:
+            extra_aliases.add(name_override)
+        if module == "select" and scope:
+            # Keep historical names bridge for completion compatibility.
+            extra_aliases.add(func)
+            extra_aliases.add(legacy_func)
         api[module][final_name] = {
             "id": action.get("id"),
             "sign1": sign1,
@@ -575,16 +697,34 @@ def main():
                     rus_ident(gui_clean),
                     englishish_alias(gui_clean),
                     *[a for a in menu_aliases if a],
+                    *[a for a in extra_aliases if a],
                 }
             ),
             "description": extract_description(action),
             "descriptionRaw": extract_description_raw(action),
-            "params": merge_params(
-                build_params(action) or [],
-                build_params_fallback(sign1, sign2) or [],
-            ),
+            "params": normalized_params,
             "enums": build_enums(action),
+            "meta": {
+                "paramSource": "normalized" if params_changed else "raw",
+            },
         }
+
+    return api
+
+
+def main():
+    ensure_dirs()
+    if not CATALOG_PATH.exists():
+        raise FileNotFoundError(
+            "Не найден `actions_catalog.json`.\n"
+            f"Путь: {CATALOG_PATH}\n"
+            "\n"
+            "Сначала запусти:\n"
+            "  python tools/build_actions_catalog.py\n"
+        )
+    catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+    translations = load_translations()
+    api = build_api_from_catalog(catalog, translations)
 
     OUT_API.write_text(json.dumps(api, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {OUT_API} modules={len(api)}")
