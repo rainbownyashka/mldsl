@@ -4,6 +4,109 @@ from mldsl_exportcode import exportcode_to_mldsl
 
 
 class ExportcodeContractTests(unittest.TestCase):
+    def test_resolver_prefers_exact_sign1_sign2_over_sign1_fallback(self):
+        api = {
+            "player": {
+                "soobschenie": {
+                    "aliases": ["сообщение"],
+                    "sign1": "Действие игрока",
+                    "sign2": "Сообщение",
+                    "params": [],
+                    "enums": [],
+                },
+                "imya_ravno": {
+                    "aliases": ["имя_равно"],
+                    "sign1": "Действие игрока",
+                    "sign2": "Имя равно",
+                    "params": [],
+                    "enums": [],
+                },
+            }
+        }
+        export_obj = {
+            "version": 2,
+            "rows": [
+                {
+                    "row": 0,
+                    "glass": {"x": 10, "y": 0, "z": 0},
+                    "blocks": [
+                        {"block": "minecraft:diamond_block", "pos": {"x": 10, "y": 1, "z": 0}, "sign": ["Событие игрока", "Вход", "", ""]},
+                        {
+                            "block": "minecraft:cobblestone",
+                            "pos": {"x": 8, "y": 1, "z": 0},
+                            "sign": ["Действие игрока", "Сообщение", "", ""],
+                            "hasChest": True,
+                            "chestItems": [{"slot": 0, "id": "minecraft:book", "displayName": "Любой"}],
+                        },
+                    ],
+                }
+            ],
+        }
+
+        out = exportcode_to_mldsl(export_obj, api)
+        self.assertIn("player.сообщение()", out)
+        self.assertNotIn("player.имя_равно(", out)
+
+    def test_air_placeholder_block_is_not_emitted_as_action(self):
+        api = {
+            "if_player": {
+                "soobschenie_ravno": {
+                    "aliases": ["сообщение_равно"],
+                    "sign1": "Если игрок",
+                    "sign2": "Сообщение равно",
+                    "params": [],
+                    "enums": [],
+                }
+            }
+        }
+        export_obj = {
+            "version": 2,
+            "rows": [
+                {
+                    "row": 0,
+                    "glass": {"x": 10, "y": 0, "z": 0},
+                    "blocks": [
+                        {"block": "minecraft:diamond_block", "pos": {"x": 10, "y": 1, "z": 0}, "sign": ["Событие игрока", "Событие чата", "", ""]},
+                        {"block": "minecraft:planks", "pos": {"x": 8, "y": 1, "z": 0}, "sign": ["Если игрок", "Сообщение равно", "", ""]},
+                        # AIR with copied sign text from runtime is a technical marker and must be ignored.
+                        {"block": "minecraft:air", "pos": {"x": 6, "y": 1, "z": 0}, "sign": ["Если игрок", "Сообщение равно", "", ""]},
+                    ],
+                }
+            ],
+        }
+
+        out = exportcode_to_mldsl(export_obj, api)
+        self.assertIn("if_player.сообщение_равно()", out)
+        self.assertEqual(out.count("if_player.сообщение_равно()"), 1)
+
+    def test_world_event_gold_block_is_event_not_row(self):
+        api = {}
+        export_obj = {
+            "version": 2,
+            "rows": [
+                {
+                    "row": 0,
+                    "glass": {"x": 10, "y": 0, "z": 0},
+                    "blocks": [
+                        {
+                            "block": "minecraft:gold_block",
+                            "pos": {"x": 10, "y": 1, "z": 0},
+                            "sign": ["Событие мира", "Запуск мира", "", ""],
+                        },
+                        {
+                            "block": "minecraft:cobblestone",
+                            "pos": {"x": 8, "y": 1, "z": 0},
+                            "sign": ["Действие игрока", "", "", ""],
+                        },
+                    ],
+                }
+            ],
+        }
+
+        out = exportcode_to_mldsl(export_obj, api)
+        self.assertIn('event("Запуск мира") {', out)
+        self.assertNotIn('row("Запуск мира") {', out)
+
     def test_empty_sign_becomes_noaction(self):
         api = {}
         export_obj = {
@@ -23,6 +126,25 @@ class ExportcodeContractTests(unittest.TestCase):
         out = exportcode_to_mldsl(export_obj, api)
         self.assertIn("event(", out)
         self.assertIn("player.noaction()", out)
+
+    def test_fully_empty_sign_has_explicit_empty_sign_warning(self):
+        api = {}
+        export_obj = {
+            "version": 2,
+            "rows": [
+                {
+                    "row": 0,
+                    "glass": {"x": 10, "y": 0, "z": 0},
+                    "blocks": [
+                        {"block": "minecraft:diamond_block", "pos": {"x": 10, "y": 1, "z": 0}, "sign": ["Событие игрока", "Вход", "", ""]},
+                        {"block": "minecraft:cobblestone", "pos": {"x": 8, "y": 1, "z": 0}, "sign": ["", "", "", ""]},
+                    ],
+                }
+            ],
+        }
+        out = exportcode_to_mldsl(export_obj, api)
+        self.assertIn("пустая табличка: sign1/sign2/gui/menu пустые после нормализации", out)
+        self.assertIn("# UNKNOWN:", out)
 
     def test_side_piston_west_open_east_close(self):
         api = {
@@ -106,9 +228,60 @@ class ExportcodeContractTests(unittest.TestCase):
         }
 
         out = exportcode_to_mldsl(export_obj, api)
-        self.assertIn("misc.имя_равно(", out)
+        self.assertIn("select.ifplayer.имя_равно(", out)
         self.assertIn("автоподбор действия по сундуку: from=misc.кандидат_низкий", out)
         self.assertIn("-> to=misc.имя_равно", out)
+
+    def test_select_condition_scope_for_mob_and_entity(self):
+        api = {
+            "misc": {
+                "mob_name_eq": {
+                    "sign1": "Выбрать обьект",
+                    "sign2": "Моб по условию",
+                    "aliases": ["имя_равно"],
+                    "menu": "Имя равно",
+                    "params": [{"name": "text", "slot": 0, "mode": "TEXT"}],
+                    "enums": [],
+                },
+                "entity_name_eq": {
+                    "sign1": "Выбрать обьект",
+                    "sign2": "Сущность по условию",
+                    "aliases": ["имя_равно"],
+                    "menu": "Имя равно",
+                    "params": [{"name": "text", "slot": 0, "mode": "TEXT"}],
+                    "enums": [],
+                },
+            }
+        }
+        export_obj = {
+            "version": 2,
+            "rows": [
+                {
+                    "row": 0,
+                    "glass": {"x": 10, "y": 0, "z": 0},
+                    "blocks": [
+                        {"block": "minecraft:diamond_block", "pos": {"x": 10, "y": 1, "z": 0}, "sign": ["Событие игрока", "Вход", "", ""]},
+                        {
+                            "block": "minecraft:planks",
+                            "pos": {"x": 8, "y": 1, "z": 0},
+                            "sign": ["Выбрать обьект", "Моб по условию", "", ""],
+                            "hasChest": True,
+                            "chestItems": [{"slot": 0, "id": "minecraft:book", "displayName": "Z"}],
+                        },
+                        {
+                            "block": "minecraft:planks",
+                            "pos": {"x": 6, "y": 1, "z": 0},
+                            "sign": ["Выбрать обьект", "Сущность по условию", "", ""],
+                            "hasChest": True,
+                            "chestItems": [{"slot": 0, "id": "minecraft:book", "displayName": "E"}],
+                        },
+                    ],
+                }
+            ],
+        }
+        out = exportcode_to_mldsl(export_obj, api)
+        self.assertIn('select.ifmob.имя_равно(text="Z")', out)
+        self.assertIn('select.ifentity.имя_равно(text="E")', out)
 
     def test_text_mode_keeps_variable_value_not_stringified(self):
         api = {

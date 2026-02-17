@@ -71,6 +71,10 @@
 - regression test coverage for var-exists dedup:
   - added `tests/test_api_aliases_dedup.py` with fixture `tests/fixtures/actions_catalog_var_exists.json`,
   - covers `if_value` and `select.ifplayer/ifmob/ifentity` one-variable expectations + negative control.
+- exportcode resolver/diagnostic regression coverage:
+  - added contract tests in `tests/test_exportcode_contract.py` for strict resolver precedence
+    (`sign1+sign2` must win over same-`sign1` fallback) and explicit empty-sign warning path,
+  - validates behavior around chest-based action picking and unknown-sign diagnostics.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.
