@@ -412,19 +412,12 @@ def parse_call_args(arg_str: str):
         if eq is not None:
             k, v = eq
             v = v.strip()
-            if len(v) >= 2 and v.startswith('"') and v.endswith('"'):
-                inner = v[1:-1]
-                # Preserve explicit whitespace-only values (e.g. `" "` for enum shorthands like separator).
-                if inner.strip() == "":
-                    v = v
-                else:
-                    v = inner
+            # Keep explicit quotes so downstream mode wrappers can distinguish
+            # literal text from bare identifiers (e.g. TEXT sugar).
             kv[k.strip()] = v
         else:
             v = p.strip()
-            if len(v) >= 2 and v.startswith('"') and v.endswith('"'):
-                inner = v[1:-1]
-                v = v if inner.strip() == "" else inner
+            # Keep explicit quotes for positional args as well.
             pos.append(v)
     return kv, pos
 

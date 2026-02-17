@@ -78,6 +78,10 @@
 - premium ai-coder backend routing:
   - `tools/_premium/ai_coder.py` adds `cerebras:<model>` route through OpenAI-compatible XML tool loop,
   - Cerebras SDK import is now optional-safe and errors explicitly only when this backend is requested.
+- compiler regression coverage for select and sugar:
+  - added `tests/test_compile_select_and_sugar.py` to lock `select.if_*` bridge behavior
+    (including fail-fast ambiguity) and assignment/text sugar (`+=`, `-=`, `*=`, `/=`, TEXT var/literal split),
+  - includes compatibility check for `if_value.переменная_существует(var=...)` var2 mirror behavior.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.
