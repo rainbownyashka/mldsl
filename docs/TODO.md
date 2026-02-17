@@ -29,3 +29,4 @@ Format: `id | task | priority | owner | needs_user_test | state | links`
 - COMP-025 | Add `meta.paramSource` (`raw|normalized`) to api_aliases specs and show source in helper hover footer | P1 | agent | yes | done | tools/build_api_aliases.py, local.mldsl-helper extension.js
 - COMP-026 | Add regression tests for var-exists dedup across `if_value` + `select.if*` and negative control | P0 | agent | no | done | tests/test_api_aliases_dedup.py
 - COMP-027 | Add compiler regression tests for select-sugar bridge (`select.if_player.*`) and assignment sugar (`+= -= *= /=`) | P1 | agent | no | done | tests/test_compile_select_and_sugar.py
+- COMP-028 | Fix compiler `select` module resolution (`misc.vybrat_*` regression) with legacy fallback bridge | P0 | agent | yes | done | mldsl_compile.py

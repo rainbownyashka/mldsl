@@ -272,12 +272,23 @@ def find_action(api: dict, module: str, func: str):
         "player": "player",
         "событие": "event",
         "event": "event",
-        "select": "misc",
-        "выборка": "misc",
+        "select": "select",
+        "выборка": "select",
     }
     orig_module = module
     module = module_aliases.get(module, module)
+    # Backward compatibility: older alias catalogs used misc.* for select actions.
+    if module == "select" and not api.get("select") and api.get("misc"):
+        module = "misc"
     mod = api.get(module)
+    if module == "misc" and (func or "").startswith("vybrat_") and api.get("select"):
+        sel_mod = api.get("select") or {}
+        if func in sel_mod:
+            return func, sel_mod[func]
+        for canon, spec in sel_mod.items():
+            aliases = spec.get("aliases") or []
+            if func in aliases:
+                return canon, spec
     if not mod:
         return None, None
     if orig_module in ("select", "выборка"):
@@ -1743,8 +1754,8 @@ def compile_entries(path: Path) -> list[dict]:
 
     # Selection (Выбрать объект) scoping:
     # `select.xxx { ... }` restores the previous selection on `}`.
-    DEFAULT_SELECT_PLAYER, _ = compile_action_tuple("misc", "vybrat_igroka_po_umolchaniyu")
-    DEFAULT_SELECT_ENTITY, _ = compile_action_tuple("misc", "vybrat_suschnost_po_umolchaniyu")
+    DEFAULT_SELECT_PLAYER, _ = compile_action_tuple("select", "vybrat_igroka_po_umolchaniyu")
+    DEFAULT_SELECT_ENTITY, _ = compile_action_tuple("select", "vybrat_suschnost_po_umolchaniyu")
     current_select: tuple[str, str, str] | None = None
     select_stack: list[tuple[str, str, str] | None] = []
     select_default_stack: list[tuple[str, str, str]] = []
@@ -1764,7 +1775,7 @@ def compile_entries(path: Path) -> list[dict]:
         return "player"
 
     def find_select_action(chain: str) -> tuple[str, dict]:
-        mod = api.get("misc") or {}
+        mod = api.get("select") or api.get("misc") or {}
         parts = [p for p in (chain or "").split(".") if p]
         leaf = parts[-1] if parts else ""
         if not leaf:

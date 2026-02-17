@@ -82,6 +82,10 @@
   - added `tests/test_compile_select_and_sugar.py` to lock `select.if_*` bridge behavior
     (including fail-fast ambiguity) and assignment/text sugar (`+=`, `-=`, `*=`, `/=`, TEXT var/literal split),
   - includes compatibility check for `if_value.переменная_существует(var=...)` var2 mirror behavior.
+- select module compatibility hardening in compiler:
+  - module aliases now resolve `select` to `select` (instead of legacy `misc`) by default,
+  - fallback bridge is preserved (`select -> misc`) for older alias catalogs without `select` section,
+  - default selection actions and selector leaf lookup now use `api["select"]` first with legacy fallback.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.
