@@ -75,6 +75,9 @@
   - added contract tests in `tests/test_exportcode_contract.py` for strict resolver precedence
     (`sign1+sign2` must win over same-`sign1` fallback) and explicit empty-sign warning path,
   - validates behavior around chest-based action picking and unknown-sign diagnostics.
+- premium ai-coder backend routing:
+  - `tools/_premium/ai_coder.py` adds `cerebras:<model>` route through OpenAI-compatible XML tool loop,
+  - Cerebras SDK import is now optional-safe and errors explicitly only when this backend is requested.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.

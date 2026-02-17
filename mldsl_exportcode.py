@@ -667,12 +667,37 @@ def _render_call_from_block(
             best_score = sc
 
     module, alias, meta = best
+
+    def _render_call(args_s: str = "") -> str:
+        # Translator-side sugar for selection actions:
+        # `misc.<selector>` where sign1 is "Выбрать объект" becomes:
+        # - select.ifplayer.<selector>(...)
+        # - select.ifmob.<selector>(...)
+        # - select.ifentity.<selector>(...)
+        # based on sign2 domain.
+        s1_meta = _norm_key(str(meta.get("sign1") or ""))
+        if module == "misc" and s1_meta in {"выбрать обьект", "выбрать объект"}:
+            s2_meta = _norm_key(str(meta.get("sign2") or ""))
+            scope = ""
+            if "игрок по условию" in s2_meta:
+                scope = "ifplayer."
+            elif "моб по условию" in s2_meta:
+                scope = "ifmob."
+            elif "сущност" in s2_meta and "по условию" in s2_meta:
+                scope = "ifentity."
+            call_head = f"select.{scope}{alias}"
+        else:
+            call_head = f"{module}.{alias}"
+        if args_s:
+            return f"{call_head}({args_s})"
+        return f"{call_head}()"
+
     if not has_chest:
         warns.append("у блока нет сундука параметров (hasChest=false) — аргументы восстановить нельзя")
-        return f"{module}.{alias}()", warns
+        return _render_call(), warns
     if not isinstance(items, list) or not items:
         warns.append("сундук параметров пустой/не детектирован (chestItems/slots пусты) — аргументы восстановить нельзя")
-        return f"{module}.{alias}()", warns
+        return _render_call(), warns
 
     params = meta.get("params") or []
     enums = meta.get("enums") or []
@@ -776,10 +801,10 @@ def _render_call_from_block(
 
     if not out_kv:
         warns.append("аргументы не восстановлены (ни один слот не распознан)")
-        return f"{module}.{alias}()", warns
+        return _render_call(), warns
 
     args_s = ", ".join(f"{k}={v}" for k, v in out_kv)
-    return f"{module}.{alias}({args_s})", warns
+    return _render_call(args_s), warns
 
 
 def _row_header(row0: Dict[str, Any], row_index: int) -> str:
@@ -788,7 +813,10 @@ def _row_header(row0: Dict[str, Any], row_index: int) -> str:
     s1 = (sign[0] if len(sign) > 0 else "") or ""
     s2 = (sign[1] if len(sign) > 1 else "") or ""
     s3 = (sign[2] if len(sign) > 2 else "") or ""
-    if block == "minecraft:diamond_block":
+    s1n = _norm_key(s1)
+    # Event rows can come from multiple block templates depending on server/export version
+    # (e.g. "Событие мира" appears on gold block in newer layouts).
+    if block == "minecraft:diamond_block" or "событие" in s1n:
         name = s2.strip() or s1.strip()
         if not name:
             return "event() {"
@@ -875,6 +903,12 @@ def exportcode_to_mldsl(export_obj: Dict[str, Any], api: Dict[str, Any]) -> str:
                         break
 
                 # 1) Emit entry action/condition (if any) for this step.
+                if entry_block is not None:
+                    bid = str(entry_block.get("block") or "").lower().strip()
+                    # Export payload may contain technical AIR placeholders between real blocks.
+                    # They are control markers, not executable action blocks.
+                    if bid in ("minecraft:air", "air"):
+                        entry_block = None
                 if entry_block is not None:
                     sign = entry_block.get("sign") or ["", "", "", ""]
                     sign1 = (sign[0] if len(sign) > 0 else "") or ""

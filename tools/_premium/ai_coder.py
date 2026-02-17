@@ -7,7 +7,12 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+try:
+    from cerebras.cloud.sdk import Cerebras
+except Exception:
+    Cerebras = None
 
 import requests
 
@@ -3766,6 +3771,21 @@ def cmd_agent(
         texts = [p.get("text", "") for p in parts if isinstance(p, dict)]
         return "".join(texts)
 
+    def _cerebras_chat(model: str, messages: list[dict]) -> str:
+        if Cerebras is None:
+            raise RuntimeError("Cerebras SDK is not installed (pip install cerebras_cloud_sdk)")
+        key = _load_cerebras_key()
+        if not key:
+            raise RuntimeError("Cerebras key not found")
+
+        client = Cerebras(api_key=key)
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+        )
+        return response.choices[0].message.content
+
+
     def _groq_chat(model: str, messages: list[dict]) -> str:
         key = _load_groq_key()
         if not key:
@@ -3977,8 +3997,17 @@ def cmd_agent(
                         pass
         eprint(f"max_steps reached ({max_steps}).")
         return 2
+    def _load_cerebras_key() -> str | None:
+        for env_name in ("CEREBRAS_API_KEY", "cerebras_api_key"):
+            v = os.getenv(env_name)
+            if v and v.strip():
+                return v.strip()
+        p = REPO_ROOT / "cerebras_api_key"
+        if p.exists():
+            return p.read_text(encoding="utf-8").strip()
+        return None
 
-    def run_groq_xml(model: str) -> int:
+    def run_groq_xml(model: str, chat_fn: Callable[[str, list[dict]], str] = _groq_chat) -> int:
         # Groq uses OpenAI-compatible chat completions; we still use the XML tool protocol.
         if builder_mode:
             system_groq = (
@@ -4023,7 +4052,7 @@ def cmd_agent(
             for role, content in transcript[-12:]:
                 prompt_lines.append(f"{role}: {content}")
             prompt = "\n".join(prompt_lines).strip() + "\n"
-            content = _groq_chat(
+            content = chat_fn(
                 model,
                 messages=[
                     {"role": "system", "content": system_groq},
@@ -4247,6 +4276,8 @@ def cmd_agent(
         return run_gemini_xml(model_name)
     if model_name.startswith("groq:"):
         return run_groq_xml(model_name.split(":", 1)[1])
+    if model_name.startswith("cerebras:"):
+        return run_groq_xml(model_name.split(":", 1)[1], _cerebras_chat)
     if model_name.startswith("xml:"):
         model = model_name.split(":", 1)[1].strip()
         if not model:

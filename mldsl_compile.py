@@ -518,6 +518,10 @@ def wrap_value(mode: str | None, value: str) -> str:
         )
     m = (mode or "").upper()
     if m == "TEXT":
+        # Sugar: bare identifiers in TEXT slots are treated as variable references.
+        # Use quotes or explicit text(...) to force literal text.
+        if re.match(rf"^{NAME_RE}$", v) and safe_eval_number_expr(v) is None:
+            return f"var({v})"
         return f"text({v})"
     if m == "NUMBER":
         return f"num({v})"
@@ -548,7 +552,7 @@ FUNC_RE = re.compile(
 )
 LOOP_RE = re.compile(rf"^\s*(?:loop|цикл)\s+([\w\u0400-\u04FF]+)(?:\s+every)?\s+(\d+)\s*\{{\s*$", re.I)
 ASSIGN_RE = re.compile(
-    rf"^\s*(?:(save)\s+)?({NAME_RE})\s*(?:~\s*)?(?:(\*)\s*)?=\s*(.+?)\s*;?\s*$",
+    rf"^\s*(?:(save)\s+)?({NAME_RE})\s*(?:~\s*)?(?:([+\-*/])\s*)?=\s*(.+?)\s*;?\s*$",
     re.I,
 )
 SAVE_SHORTHAND_RE = re.compile(rf"^\s*({NAME_RE})\s*~\s*(.+?)\s*;?\s*$", re.I)
@@ -983,6 +987,12 @@ def compile_line(api: dict, line: str):
             if pname not in kv:
                 kv[pname] = raw
 
+    # Compatibility sugar: this action is often used as a single-variable existence check.
+    # If only one variable is passed, mirror it to var2.
+    if (module or "").strip().lower() == "if_value" and canon == "peremennaya_suschestvuet":
+        if "var" in kv and "var2" not in kv:
+            kv["var2"] = kv["var"]
+
     for p in params:
         name = p["name"]
         if name not in kv:
@@ -1410,15 +1420,17 @@ def compile_builtin(api: dict, line: str, func_sigs: dict[str, list[str]] | None
         if isinstance(node, ast.Name):
             rhs_wrapped = f"var({(name_map or {}).get(node.id, node.id)})"
 
-        # If user explicitly requested multiplication assignment (name * = ...), and it's a pure mul expression,
-        # compile to set_product with multiple operands.
-        if op == "*":
+        if op in {"+", "-", "*", "/"}:
+            # Augmented assignment sugar: x += y, x -= y, x *= y, x /= y.
+            aug_expr = f"{name} {op} ({rhs})"
+            aug_expr_s, aug_map = preprocess_numeric_expr(aug_expr)
             try:
-                factors_nodes = flatten_binop(node, ast.Mult) if isinstance(node, ast.BinOp) else None
+                aug_node = ast.parse(aug_expr_s, mode="eval").body
             except Exception:
-                factors_nodes = None
-            if factors_nodes and len(factors_nodes) >= 2:
-                return compile_op_action(api, "set_product", var_token, [expr_to_operand(n) for n in factors_nodes])
+                aug_node = None
+            if not is_supported_numeric_expr_ast(aug_node):
+                raise ValueError(f"assignment '{op}=' supports numeric expressions only: {rhs}")
+            return compile_numeric_expression(api, target_var=var_token, expr_node=aug_node, name_map=aug_map)
 
         # default '=' assignment (value can be text/num/...)
         res = compile_line(api, f"var.set_value(var={var_token}, value={rhs_wrapped})")
@@ -1773,6 +1785,10 @@ def compile_entries(path: Path) -> list[dict]:
             "шифт": "kradetsya",
             "sneak": "kradetsya",
             "sneaking": "kradetsya",
+            "держит": "держит_предмет",
+            "derzhit": "держит_предмет",
+            "переменнаяравна": "значение_равно",
+            "peremennayaravna": "znachenie_ravno",
         }
         leaf_key = leaf_syn.get(leaf_key, leaf_key)
         leaf_sh = {
@@ -1789,6 +1805,26 @@ def compile_entries(path: Path) -> list[dict]:
         }
         leaf_mapped = leaf_sh.get(leaf_key, leaf_key)
 
+        def _has_hint(parts_list: list[str], needles: tuple[str, ...]) -> bool:
+            for p in parts_list:
+                np = norm_ident(p)
+                for n in needles:
+                    if n in np:
+                        return True
+            return False
+
+        want_player = _has_hint(parts[:-1], ("player", "игрок", "ifplayer", "if_player"))
+        want_mob = _has_hint(parts[:-1], ("mob", "моб", "ifmob", "if_mob"))
+        want_entity = _has_hint(parts[:-1], ("entity", "существо", "сущность", "ifentity", "if_entity"))
+
+        domain_sign2 = ""
+        if want_player:
+            domain_sign2 = "игрокпоусловию"
+        elif want_mob:
+            domain_sign2 = "мобпоусловию"
+        elif want_entity:
+            domain_sign2 = "сущностьпоусловию"
+
         select_cands: list[tuple[str, dict]] = []
         for canon, spec in mod.items():
             if not isinstance(spec, dict):
@@ -1799,6 +1835,10 @@ def compile_entries(path: Path) -> list[dict]:
                 s1n = norm_key(sign1_aliases[s1n])
             if s1n != norm_key("Выбрать объект"):
                 continue
+            if domain_sign2:
+                s2n = norm_ident(spec.get("sign2", ""))
+                if s2n != domain_sign2:
+                    continue
             select_cands.append((canon, spec))
 
         target = norm_ident(leaf_mapped)
@@ -1812,28 +1852,48 @@ def compile_entries(path: Path) -> list[dict]:
                 hits.append((canon, spec))
 
         if not hits:
+            # Sugar bridge:
+            # select.ifplayer.<leaf> / select.ifmob.<leaf> / select.ifentity.<leaf>
+            # should accept if_player condition names and map them to
+            # corresponding "Выбрать объект -> * по условию" selector entries.
+            if_player_mod = api.get("if_player") or {}
+            if_target_menu = ""
+            for canon, spec in if_player_mod.items():
+                if not isinstance(spec, dict):
+                    continue
+                keys = [canon]
+                keys.extend(spec.get("aliases") or [])
+                keys.extend([spec.get("menu", ""), spec.get("gui", ""), spec.get("sign2", "")])
+                if any(norm_ident(str(k)) == target for k in keys if k):
+                    if_target_menu = norm_ident(
+                        strip_colors(spec.get("menu", "")).strip()
+                        or strip_colors(spec.get("sign2", "")).strip()
+                        or strip_colors(spec.get("gui", "")).strip()
+                    )
+                    break
+            if if_target_menu:
+                for canon, spec in select_cands:
+                    keys = [canon]
+                    keys.extend(spec.get("aliases") or [])
+                    keys.extend([spec.get("menu", ""), spec.get("gui", ""), spec.get("sign2", "")])
+                    if any(norm_ident(str(k)) == if_target_menu for k in keys if k):
+                        hits.append((canon, spec))
+
+        if not hits:
             raise ValueError(f"select: неизвестный селектор `{leaf}` (chain={chain})")
 
         if len(hits) == 1:
             return hits[0]
 
-        def _has_hint(parts_list: list[str], needles: tuple[str, ...]) -> bool:
-            for p in parts_list:
-                np = norm_ident(p)
-                for n in needles:
-                    if n in np:
-                        return True
-            return False
-
-        want_player = _has_hint(parts[:-1], ("player", "игрок"))
-        want_entity = _has_hint(parts[:-1], ("entity", "mob", "существо", "сущность", "моб"))
-        if want_player or want_entity:
+        if want_player or want_mob or want_entity:
             filtered = []
             for canon, spec in hits:
-                dom = select_domain(spec)
-                if want_player and dom == "player":
+                s2 = norm_ident(spec.get("sign2", ""))
+                if want_player and s2 == "игрокпоусловию":
                     filtered.append((canon, spec))
-                elif want_entity and dom == "entity":
+                elif want_mob and s2 == "мобпоусловию":
+                    filtered.append((canon, spec))
+                elif want_entity and s2 == "сущностьпоусловию":
                     filtered.append((canon, spec))
             if len(filtered) == 1:
                 return filtered[0]

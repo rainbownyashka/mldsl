@@ -6,7 +6,7 @@ import runpy
 import sys
 from pathlib import Path
 
-from mldsl_paths import ensure_dirs, out_dir, repo_root
+from mldsl_paths import api_aliases_path, ensure_dirs, out_dir, repo_root
 
 
 def _cmd_build_all(_args: argparse.Namespace) -> int:
@@ -81,9 +81,12 @@ def _cmd_exportcode(args: argparse.Namespace) -> int:
     if not export_path.exists():
         raise FileNotFoundError(f"Файл exportcode не найден: {export_path}")
 
-    api_path = Path(args.api).expanduser()
-    if not api_path.is_absolute():
-        api_path = Path.cwd() / api_path
+    if args.api:
+        api_path = Path(args.api).expanduser()
+        if not api_path.is_absolute():
+            api_path = Path.cwd() / api_path
+    else:
+        api_path = api_aliases_path()
     if not api_path.exists():
         raise FileNotFoundError(f"api_aliases.json не найден: {api_path}")
 
@@ -120,8 +123,8 @@ def main(argv: list[str] | None = None) -> int:
     sp_export.add_argument("export_json", help="Path to exportcode_*.json")
     sp_export.add_argument(
         "--api",
-        default="out/api_aliases.json",
-        help="Path to api_aliases.json (default: out/api_aliases.json)",
+        default=None,
+        help="Path to api_aliases.json (default: resolved MLDSL out/api_aliases.json)",
     )
     sp_export.add_argument("-o", "--out", default=None, help="Output .mldsl path (default: <export>.mldsl)")
     sp_export.set_defaults(func=_cmd_exportcode)

@@ -9,6 +9,7 @@ ALIASES_PATH = aliases_json_path()
 OUT_PATH = out_dir() / "regallactions_args.json"
 
 GLASS_ID = "minecraft:stained_glass_pane"
+ROW_SIZE = 9
 
 
 def read_text_utf8(path: Path) -> str:
@@ -130,9 +131,51 @@ def neighbor_slots(slot: int):
             yield r * 9 + c
 
 
-def find_candidate_slot(items: dict, base_slot: int, reserved: set[int]) -> int | None:
+def round_down_to_row(slot: int) -> int:
+    return (slot // ROW_SIZE) * ROW_SIZE
+
+
+def round_up_to_row_max(slot: int) -> int:
+    return ((slot // ROW_SIZE) + 1) * ROW_SIZE - 1
+
+
+def infer_slot_bounds(items: dict[int, dict]) -> tuple[int, int]:
+    if not items:
+        return 0, ROW_SIZE - 1
+    min_slot = min(items.keys())
+    max_slot = max(items.keys())
+    return round_down_to_row(min_slot), round_up_to_row_max(max_slot)
+
+
+def is_usable_empty_slot(items: dict, slot: int, reserved: set[int]) -> bool:
+    if slot in reserved:
+        return False
+    if slot in items:
+        return False
+    return True
+
+
+def find_fallback_slot(items: dict, base_slot: int, reserved: set[int], min_slot: int, max_slot: int) -> int | None:
+    # Directional policy: choose one side by nearest bound and scan only that side.
+    # Near min bound -> search down only. Near max bound -> search up only.
+    dist_min = abs(base_slot - min_slot)
+    dist_max = abs(max_slot - base_slot)
+    if dist_min <= dist_max:
+        for s in range(base_slot - 1, min_slot - 1, -1):
+            if is_usable_empty_slot(items, s, reserved):
+                return s
+    else:
+        for s in range(base_slot + 1, max_slot + 1):
+            if is_usable_empty_slot(items, s, reserved):
+                return s
+    return None
+
+
+def find_candidate_slot(items: dict, base_slot: int, reserved: set[int], min_slot: int, max_slot: int) -> int | None:
     best_empty = None
     for s in neighbor_slots(base_slot):
+        if s < min_slot or s > max_slot:
+            continue
         if s in reserved:
             continue
         if s not in items:
@@ -141,7 +184,9 @@ def find_candidate_slot(items: dict, base_slot: int, reserved: set[int]) -> int 
             continue
         if items[s]["id"] == GLASS_ID:
             continue
-    return best_empty
+    if best_empty is not None:
+        return best_empty
+    return find_fallback_slot(items, base_slot, reserved, min_slot, max_slot)
 
 
 def parse_variant_info(lore: str) -> dict | None:
@@ -191,6 +236,7 @@ def build_key(record: dict, aliases: dict) -> str:
 def extract_args(record: dict):
     args = []
     items = record["items"]
+    min_slot, max_slot = infer_slot_bounds(items)
     reserved = set()
     for slot, item in sorted(items.items()):
         if item["id"] != GLASS_ID:
@@ -200,7 +246,7 @@ def extract_args(record: dict):
         mode = determine_mode(item["meta"], item["name"])
         if mode is None:
             continue
-        arg_slot = find_candidate_slot(items, slot, reserved)
+        arg_slot = find_candidate_slot(items, slot, reserved, min_slot, max_slot)
         if arg_slot is None:
             continue
         reserved.add(arg_slot)
