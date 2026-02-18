@@ -123,6 +123,9 @@
   - extension `select` module alias now targets canonical `select` (not legacy `misc`),
   - `select.ifplayer.*`, `select.ifmob.*`, `select.ifentity.*` completion now resolves from `api_aliases.select`,
   - legacy `misc` remains as fallback only when `select` section is absent.
+- VSCode helper compact completion detail for `select.*`:
+  - completion right-side detail no longer shows long canonical alias variants (e.g. `ifplayer_sravnit_*`),
+  - `select` entries now show compact signature (`select.(params)`) to reduce visual clutter.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.

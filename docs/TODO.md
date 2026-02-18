@@ -36,3 +36,4 @@ Format: `id | task | priority | owner | needs_user_test | state | links`
 - COMP-032 | Fix select sugar compile path to canonical `select` module and add alias bridge for `сравнить_число_легко` | P0 | agent | yes | done | mldsl_compile.py
 - COMP-033 | Harden compiler call parsing: support multiline `module.func(...)` and omit empty named arg values (`var=`) from emitted plan args | P0 | agent | yes | done | mldsl_compile.py, tests/test_compile_call_parsing.py
 - COMP-034 | Fix VSCode helper select completion module routing (`select.ifplayer/ifmob/ifentity`) to use canonical `select` aliases instead of legacy `misc` | P0 | agent | yes | done | tools/mldsl-vscode/extension.js
+- COMP-035 | Reduce VSCode helper completion visual noise for `select.*` by hiding long canonical alias variants in right-side detail | P1 | agent | yes | done | tools/mldsl-vscode/extension.js
