@@ -117,8 +117,8 @@
 - call parsing hardening for compile stability:
   - multiline `module.func(...)` calls are now normalized before parse, so multiline argument formatting
     no longer degrades into unrelated assignment actions,
-  - named args with empty value (e.g. `var=`) now fail-fast with explicit compiler error instead of silently
-    emitting broken slots into `plan.json`.
+  - named args with empty value (e.g. `var=`) are now omitted from emitted args,
+    so `plan.json` does not receive broken empty slots.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.

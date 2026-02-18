@@ -915,9 +915,8 @@ def compile_line(api: dict, line: str):
         raise ValueError(f"Unknown action: {module}.{func}")
 
     kv, pos = parse_call_args(arg_str)
-    for _k, _v in (kv or {}).items():
-        if (_v or "").strip() == "":
-            raise ValueError(f"{module}.{func}: empty value for argument `{_k}`")
+    if kv:
+        kv = {k: v for k, v in kv.items() if (v or "").strip() != ""}
 
     # Accept Cyrillic keyword names for params/enums by transliterating to canonical keys.
     # Example: if_player.режим_игрока(режим_игры="Креатив")

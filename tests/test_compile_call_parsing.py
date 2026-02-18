@@ -28,15 +28,33 @@ def test_multiline_module_call_is_compiled_as_single_action(tmp_path, monkeypatc
     assert entries[1]["args"] == 'slot(9)=text("Привет")'
 
 
-def test_empty_named_arg_fails_fast(tmp_path, monkeypatch):
-    with pytest.raises(ValueError, match="empty value for argument"):
-        _compile(
-            tmp_path,
-            monkeypatch,
-            [
-                'event("Вход") {',
-                "    if_value.переменная_существует(var=)",
-                "}",
-            ],
-        )
+def test_empty_named_arg_is_omitted(tmp_path, monkeypatch):
+    entries = _compile(
+        tmp_path,
+        monkeypatch,
+        [
+            'event("Вход") {',
+            "    if_value.переменная_существует(var=)",
+            "}",
+        ],
+    )
+    assert len(entries) == 2
+    assert entries[1]["name"] == "Переменная существует||Переменная существует"
+    assert entries[1]["args"] == "no"
 
+
+def test_multiline_call_with_many_empty_named_args_is_compact(tmp_path, monkeypatch):
+    entries = _compile(
+        tmp_path,
+        monkeypatch,
+        [
+            'event("Вход") {',
+            "    player.msg(",
+            '        text="Привет", text2=, text3=',
+            "    )",
+            "}",
+        ],
+    )
+    assert len(entries) == 2
+    assert entries[1]["name"] == "Сообщение||Сообщение"
+    assert entries[1]["args"] == 'slot(9)=text("Привет")'
