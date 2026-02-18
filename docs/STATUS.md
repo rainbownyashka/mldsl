@@ -119,6 +119,10 @@
     no longer degrades into unrelated assignment actions,
   - named args with empty value (e.g. `var=`) are now omitted from emitted args,
     so `plan.json` does not receive broken empty slots.
+- VSCode helper select-domain completion fix:
+  - extension `select` module alias now targets canonical `select` (not legacy `misc`),
+  - `select.ifplayer.*`, `select.ifmob.*`, `select.ifentity.*` completion now resolves from `api_aliases.select`,
+  - legacy `misc` remains as fallback only when `select` section is absent.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.

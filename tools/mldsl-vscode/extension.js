@@ -334,9 +334,9 @@ function buildLookup(api) {
     "еслизначение": "if_value",
     "if_value": "if_value",
     "misc": "misc",
-    "select": "misc",
-    "vyborka": "misc",
-    "выборка": "misc",
+    "select": "select",
+    "vyborka": "select",
+    "выборка": "select",
   };
   for (const [alias, target] of Object.entries(moduleAliases)) {
     if (lookup[target] && !lookup[alias]) lookup[alias] = lookup[target];
@@ -1008,7 +1008,7 @@ function activate(context) {
         // select.<...> completion (works even when generic module matcher fails)
         const selDot = findSelectDotContext(line, position.character);
         if (selDot) {
-          const mod = lookup[moduleAliases["select"]] || lookup["misc"];
+          const mod = lookup["select"] || lookup[moduleAliases["select"]] || lookup["misc"];
           if (!mod) return;
           const prefix = String(selDot.prefix || "");
           const items = [];
@@ -1273,7 +1273,7 @@ function activate(context) {
 
         let mod = lookup[info.module];
         if (info.module === "select") {
-          mod = lookup[moduleAliases["select"]] || lookup["misc"];
+          mod = lookup["select"] || lookup[moduleAliases["select"]] || lookup["misc"];
         }
         if (!mod) {
           output.appendLine(`[completion#${id}] module not found: ${info.module}`);
