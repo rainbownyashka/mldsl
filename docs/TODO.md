@@ -38,3 +38,4 @@ Format: `id | task | priority | owner | needs_user_test | state | links`
 - COMP-034 | Fix VSCode helper select completion module routing (`select.ifplayer/ifmob/ifentity`) to use canonical `select` aliases instead of legacy `misc` | P0 | agent | yes | done | tools/mldsl-vscode/extension.js
 - COMP-035 | Reduce VSCode helper completion visual noise for `select.*` by hiding long canonical alias variants in right-side detail | P1 | agent | yes | done | tools/mldsl-vscode/extension.js
 - COMP-036 | Remove parameter list from right-side completion detail for `select.*` entries in VSCode helper | P1 | agent | yes | done | tools/mldsl-vscode/extension.js
+- COMP-037 | Show only canonical function id in right-side completion detail (remove module/signature alias noise) | P1 | agent | yes | done | tools/mldsl-vscode/extension.js

@@ -129,6 +129,9 @@
 - VSCode helper select completion detail simplification:
   - `select.*` completion detail no longer renders parameter lists on the right side,
   - right-side detail now shows only compact action context (`select` + menu label when available).
+- VSCode helper completion detail canonicalization:
+  - right-side completion detail for action suggestions now shows only canonical function id (`funcName`),
+  - removes duplicated module/signature/alias noise in completion list (e.g. `player.<...>` details).
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.
