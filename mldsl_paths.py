@@ -171,7 +171,14 @@ def default_minecraft_export_path() -> Path:
     override = os.environ.get("MLDSL_REGALLACTIONS_EXPORT", "").strip()
     if override:
         return Path(override).expanduser().resolve()
-    return default_minecraft_dir() / "regallactions_export.txt"
+    candidates = [
+        default_minecraft_dir() / "regallactions_export.txt",
+        repo_root() / "seed" / "inputs" / "regallactions_export.txt",
+    ]
+    p = _first_existing(candidates)
+    if p:
+        return p
+    return candidates[0]
 
 
 def apples_txt_path() -> Path | None:
@@ -181,8 +188,8 @@ def apples_txt_path() -> Path | None:
 
     candidates = [
         repo_root() / "apples.txt",
+        repo_root() / "seed" / "inputs" / "apples.txt",
         inputs_dir() / "apples.txt",
         Path.home() / "Documents" / "apples.txt",
     ]
     return _first_existing(candidates)
-

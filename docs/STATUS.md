@@ -86,6 +86,10 @@
   - module aliases now resolve `select` to `select` (instead of legacy `misc`) by default,
   - fallback bridge is preserved (`select -> misc`) for older alias catalogs without `select` section,
   - default selection actions and selector leaf lookup now use `api["select"]` first with legacy fallback.
+- seed input preservation for long-to-rebuild sources:
+  - added `seed/inputs/regallactions_export.txt` and `seed/inputs/apples.txt` to keep critical raw sources in-repo,
+  - path resolver now uses `seed/inputs/regallactions_export.txt` as fallback for default export source,
+  - `apples_txt_path()` now checks `seed/inputs/apples.txt` before user-local docs path.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.
