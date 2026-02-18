@@ -1994,7 +1994,7 @@ def compile_entries(path: Path) -> list[dict]:
         call_indent = ""
         parts: list[str] = []
         balance = 0
-        start_re = re.compile(r"^\s*[\w\u0400-\u04FF]+\.[\w\u0400-\u04FF]+\s*\(", re.I)
+        start_re = re.compile(r"^\s*[\w\u0400-\u04FF]+(?:\.[\w\u0400-\u04FF]+)+\s*\(", re.I)
 
         for raw in src_lines:
             s = raw if raw is not None else ""

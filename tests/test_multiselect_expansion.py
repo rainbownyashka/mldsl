@@ -126,3 +126,21 @@ def test_multiselect_scope_mismatch_fail_fast(tmp_path, monkeypatch):
                 "}",
             ],
         )
+
+
+def test_multiselect_accepts_multiline_condition_call(tmp_path, monkeypatch):
+    entries = _compile(
+        tmp_path,
+        monkeypatch,
+        [
+            'event("Вход") {',
+            "    multiselect ifplayer %selected%sel 1",
+            "        select.ifplayer.держит(",
+            '            item=item("minecraft:stick")',
+            "        )+",
+            "}",
+        ],
+    )
+    names = [e["name"] for e in entries]
+    assert "Держит предмет||Игрок по условию" in names
+    assert "+||+" in names
