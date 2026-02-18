@@ -99,6 +99,15 @@
   - added pipeline contract tests:
     - `tests/test_build_pipeline_contract.py` validates generator invariants and consistency
       between `mldsl build-all` and direct `tools/build_api_aliases.py` output.
+- `vfunc` compile-time expansion (MVP):
+  - compiler now supports top-level virtual functions:
+    - `vfunc name(arg1, arg2="default")` + call as `name(...)` inside blocks,
+  - calls are expanded into plain MLDSL lines before normal parse/compile stages,
+  - fail-fast checks added for:
+    - unknown/missing arguments,
+    - recursion cycles / excessive expansion depth,
+    - `func`/`vfunc` name conflicts.
+  - coverage added in `tests/test_vfunc_expansion.py`.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.

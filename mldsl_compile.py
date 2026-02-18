@@ -554,6 +554,10 @@ FUNC_RE = re.compile(
     rf"^\s*(?:func|function|def|функция)\s*(?:\(\s*)?([\w\u0400-\u04FF]+)(?:\s*\))?(?:\s*\(\s*([^\)]*)\s*\))?\s*\{{\s*$",
     re.I,
 )
+VFUNC_RE = re.compile(
+    rf"^\s*(?:vfunc|vfunction|вирт_функция)\s+([\w\u0400-\u04FF]+)\s*\(\s*([^\)]*)\s*\)\s*$",
+    re.I,
+)
 LOOP_RE = re.compile(rf"^\s*(?:loop|цикл)\s+([\w\u0400-\u04FF]+)(?:\s+every)?\s+(\d+)\s*\{{\s*$", re.I)
 ASSIGN_RE = re.compile(
     rf"^\s*(?:(save)\s+)?({NAME_RE})\s*(?:~\s*)?(?:([+\-*/])\s*)?=\s*(.+?)\s*;?\s*$",
@@ -1942,7 +1946,199 @@ def compile_entries(path: Path) -> list[dict]:
         rec(entry)
         return out, namespaces
 
+    def _line_indent(raw: str) -> str:
+        i = 0
+        while i < len(raw) and raw[i] in (" ", "\t"):
+            i += 1
+        return raw[:i]
+
+    def _parse_vfunc_params(raw: str, name: str) -> tuple[list[str], dict[str, str]]:
+        names: list[str] = []
+        defaults: dict[str, str] = {}
+        if not (raw or "").strip():
+            return names, defaults
+        for part in split_args(raw):
+            token = (part or "").strip()
+            if not token:
+                continue
+            eq = token.find("=")
+            if eq < 0:
+                pname = token
+                default = None
+            else:
+                pname = token[:eq].strip()
+                default = token[eq + 1 :].strip()
+            if not re.match(rf"^{NAME_RE}$", pname):
+                raise ValueError(f"vfunc {name}(): недопустимое имя параметра: {pname}")
+            if pname in names:
+                raise ValueError(f"vfunc {name}(): дублирующийся параметр: {pname}")
+            names.append(pname)
+            if default is not None:
+                defaults[pname] = default
+        return names, defaults
+
+    def collect_vfunc_defs(src_lines: list[str]) -> tuple[list[str], dict[str, dict]]:
+        vfuncs: dict[str, dict] = {}
+        out: list[str] = []
+        i = 0
+        n = len(src_lines)
+        while i < n:
+            raw = src_lines[i]
+            stripped = (raw or "").strip()
+            m = VFUNC_RE.match(stripped)
+            if not m:
+                out.append(raw)
+                i += 1
+                continue
+
+            if _line_indent(raw):
+                raise ValueError("vfunc: definition must be top-level (no leading indentation)")
+
+            name = (m.group(1) or "").strip()
+            if name in vfuncs:
+                raise ValueError(f"vfunc {name}(): duplicate definition")
+            params_raw = (m.group(2) or "").strip()
+            params, defaults = _parse_vfunc_params(params_raw, name)
+
+            i += 1
+            body_raw: list[str] = []
+            while i < n:
+                cur = src_lines[i]
+                cur_s = (cur or "").strip()
+                if not cur_s:
+                    body_raw.append("")
+                    i += 1
+                    continue
+                if _line_indent(cur):
+                    body_raw.append(cur)
+                    i += 1
+                    continue
+                break
+
+            if not any((ln or "").strip() for ln in body_raw):
+                raise ValueError(f"vfunc {name}(): body is empty")
+
+            nonempty = [ln for ln in body_raw if (ln or "").strip()]
+            min_indent = min(len(_line_indent(ln)) for ln in nonempty) if nonempty else 0
+            body = [ln[min_indent:] if (ln or "").strip() else "" for ln in body_raw]
+            vfuncs[name] = {
+                "params": params,
+                "defaults": defaults,
+                "body": body,
+            }
+        return out, vfuncs
+
+    def _substitute_params_outside_strings(template: str, mapping: dict[str, str]) -> str:
+        s = template or ""
+        out: list[str] = []
+        i = 0
+        in_str = False
+        str_ch = ""
+        esc = False
+        while i < len(s):
+            ch = s[i]
+            if esc:
+                out.append(ch)
+                esc = False
+                i += 1
+                continue
+            if ch == "\\":
+                out.append(ch)
+                esc = True
+                i += 1
+                continue
+            if ch in ('"', "'"):
+                if in_str and ch == str_ch:
+                    in_str = False
+                    str_ch = ""
+                elif not in_str:
+                    in_str = True
+                    str_ch = ch
+                out.append(ch)
+                i += 1
+                continue
+            if not in_str:
+                m = re.match(rf"{NAME_RE}", s[i:])
+                if m:
+                    tok = m.group(0)
+                    out.append(mapping.get(tok, tok))
+                    i += len(tok)
+                    continue
+            out.append(ch)
+            i += 1
+        return "".join(out)
+
+    def expand_vfunc_calls(src_lines: list[str], vfuncs: dict[str, dict], max_depth: int = 32) -> list[str]:
+        if not vfuncs:
+            return src_lines
+
+        def expand_list(lines_in: list[str], stack: list[str], depth: int) -> list[str]:
+            if depth > max_depth:
+                chain = " -> ".join(stack) if stack else "<root>"
+                raise ValueError(f"vfunc expansion depth exceeded (>{max_depth}): {chain}")
+            out_lines: list[str] = []
+            for raw in lines_in:
+                stripped = (raw or "").strip()
+                if not stripped or stripped.startswith("#"):
+                    out_lines.append(raw)
+                    continue
+                m = BARE_CALL_RE.match(stripped)
+                if not m:
+                    out_lines.append(raw)
+                    continue
+                call_name = (m.group(1) or "").strip()
+                if call_name not in vfuncs:
+                    out_lines.append(raw)
+                    continue
+
+                if call_name in stack:
+                    chain = " -> ".join([*stack, call_name])
+                    raise ValueError(f"vfunc recursion cycle detected: {chain}")
+                spec = vfuncs[call_name]
+                kv, pos = parse_call_args(m.group(2) or "")
+                params: list[str] = list(spec["params"])
+                defaults: dict[str, str] = dict(spec["defaults"])
+                resolved: dict[str, str] = {}
+
+                if len(pos) > len(params):
+                    raise ValueError(
+                        f"vfunc {call_name}(): expected at most {len(params)} positional args, got {len(pos)}"
+                    )
+                for idx, arg in enumerate(pos):
+                    resolved[params[idx]] = arg
+
+                for k, v in kv.items():
+                    if k not in params:
+                        raise ValueError(f"vfunc {call_name}(): unknown argument `{k}`")
+                    if k in resolved:
+                        raise ValueError(f"vfunc {call_name}(): duplicate argument `{k}`")
+                    resolved[k] = v
+
+                for p in params:
+                    if p in resolved:
+                        continue
+                    if p in defaults:
+                        resolved[p] = defaults[p]
+                    else:
+                        raise ValueError(f"vfunc {call_name}(): missing required argument `{p}`")
+
+                base_indent = _line_indent(raw)
+                expanded_chunk = []
+                for body_line in spec["body"]:
+                    if not (body_line or "").strip():
+                        expanded_chunk.append("")
+                        continue
+                    substituted = _substitute_params_outside_strings(body_line, resolved)
+                    expanded_chunk.append(base_indent + substituted)
+
+                out_lines.extend(expand_list(expanded_chunk, [*stack, call_name], depth + 1))
+            return out_lines
+
+        return expand_list(src_lines, [], 0)
+
     lines, imported_namespaces = load_with_imports(path)
+    lines, vfunc_defs = collect_vfunc_defs(lines)
+    lines = expand_vfunc_calls(lines, vfunc_defs)
 
     # Collect function signatures (name -> param list) in advance so calls can be validated
     # even if the function is declared later in the file.
@@ -1965,6 +2161,9 @@ def compile_entries(path: Path) -> list[dict]:
                     raise ValueError(f"func {fname}(): недопустимое имя параметра: {pn}")
                 params.append(pn)
         func_sigs[fname] = params
+    for vname in vfunc_defs.keys():
+        if vname in func_sigs:
+            raise ValueError(f"name conflict: `{vname}` defined as both func and vfunc")
     entries: list[dict] = []
 
     in_block = False

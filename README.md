@@ -34,6 +34,25 @@ MLDSL — язык и компилятор для Mineland K+ (Minecraft), ко�
 2) В игре распечатать план:
 - `/mldsl run "%APPDATA%\\.minecraft\\plan.json"`
 
+## `vfunc` (MVP)
+
+Поддержаны виртуальные функции (compile-time expansion):
+
+```mldsl
+vfunc basicselectvar(varname, mobid="universeV1")
+    select.allentities
+    select.if_player.переменная_существует(var=varname)
+    player.msg(text=mobid)
+
+event("Вход") {
+    basicselectvar(%selected%apiversion)
+}
+```
+
+- `vfunc` разворачивается на этапе компиляции в обычные строки MLDSL.
+- `vfunc` только top-level.
+- рекурсия/циклы между `vfunc` запрещены (fail-fast).
+
 ## Разработка (генерация API/доков)
 
 Локальная генерация `out/` требует экспортов из игры:
