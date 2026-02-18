@@ -90,6 +90,15 @@
   - added `seed/inputs/regallactions_export.txt` and `seed/inputs/apples.txt` to keep critical raw sources in-repo,
   - path resolver now uses `seed/inputs/regallactions_export.txt` as fallback for default export source,
   - `apples_txt_path()` now checks `seed/inputs/apples.txt` before user-local docs path.
+- translator architecture stabilization (generator SoT + contract checks):
+  - root `build_api_aliases.py` is now a thin deprecated wrapper that delegates to `tools/build_api_aliases.py`,
+  - `tools/build_api_aliases.py` now enforces contract invariants before writing output:
+    - non-empty `select` module,
+    - canonical select domains (`ifplayer_*`, `ifmob_*`, `ifentity_*`),
+    - mandatory `meta.paramSource` in every action spec (`raw|normalized`),
+  - added pipeline contract tests:
+    - `tests/test_build_pipeline_contract.py` validates generator invariants and consistency
+      between `mldsl build-all` and direct `tools/build_api_aliases.py` output.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.

@@ -712,6 +712,47 @@ def build_api_from_catalog(catalog: list[dict], translations: dict | None = None
     return api
 
 
+def validate_api_contract(api: dict) -> None:
+    select_mod = api.get("select")
+    if not isinstance(select_mod, dict) or not select_mod:
+        raise ValueError(
+            "api_aliases contract violation: module `select` must exist and be non-empty. "
+            "Rebuild via `python tools/build_api_aliases.py` from fresh actions_catalog."
+        )
+
+    has_ifplayer = any(str(k).startswith("ifplayer_") for k in select_mod.keys())
+    has_ifmob = any(str(k).startswith("ifmob_") for k in select_mod.keys())
+    has_ifentity = any(str(k).startswith("ifentity_") for k in select_mod.keys())
+    if not (has_ifplayer and has_ifmob and has_ifentity):
+        raise ValueError(
+            "api_aliases contract violation: canonical select domains are incomplete. "
+            "Expected keys with prefixes `ifplayer_`, `ifmob_`, `ifentity_`."
+        )
+
+    bad_meta: list[str] = []
+    for module, funcs in (api or {}).items():
+        if not isinstance(funcs, dict):
+            continue
+        for fname, spec in funcs.items():
+            if not isinstance(spec, dict):
+                bad_meta.append(f"{module}.{fname}: missing spec object")
+                continue
+            meta = spec.get("meta")
+            if not isinstance(meta, dict):
+                bad_meta.append(f"{module}.{fname}: missing meta")
+                continue
+            src = meta.get("paramSource")
+            if src not in {"raw", "normalized"}:
+                bad_meta.append(f"{module}.{fname}: invalid meta.paramSource={src!r}")
+    if bad_meta:
+        sample = "; ".join(bad_meta[:8])
+        more = "..." if len(bad_meta) > 8 else ""
+        raise ValueError(
+            "api_aliases contract violation: each action must carry meta.paramSource in {raw, normalized}. "
+            f"Sample: {sample}{more}"
+        )
+
+
 def main():
     ensure_dirs()
     if not CATALOG_PATH.exists():
@@ -725,6 +766,7 @@ def main():
     catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     translations = load_translations()
     api = build_api_from_catalog(catalog, translations)
+    validate_api_contract(api)
 
     OUT_API.write_text(json.dumps(api, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {OUT_API} modules={len(api)}")

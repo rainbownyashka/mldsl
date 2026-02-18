@@ -31,3 +31,4 @@ Format: `id | task | priority | owner | needs_user_test | state | links`
 - COMP-027 | Add compiler regression tests for select-sugar bridge (`select.if_player.*`) and assignment sugar (`+= -= *= /=`) | P1 | agent | no | done | tests/test_compile_select_and_sugar.py
 - COMP-028 | Fix compiler `select` module resolution (`misc.vybrat_*` regression) with legacy fallback bridge | P0 | agent | yes | done | mldsl_compile.py
 - COMP-029 | Preserve critical raw generator inputs in repo (`seed/inputs/regallactions_export.txt`, `seed/inputs/apples.txt`) and wire fallback path resolution | P0 | agent | no | done | seed/inputs/, mldsl_paths.py
+- COMP-030 | Stabilize generator architecture: single SoT `tools/build_api_aliases.py` + api_aliases contract validation + build consistency tests | P0 | agent | no | done | build_api_aliases.py, tools/build_api_aliases.py, tests/test_build_pipeline_contract.py
