@@ -33,3 +33,4 @@ Format: `id | task | priority | owner | needs_user_test | state | links`
 - COMP-029 | Preserve critical raw generator inputs in repo (`seed/inputs/regallactions_export.txt`, `seed/inputs/apples.txt`) and wire fallback path resolution | P0 | agent | no | done | seed/inputs/, mldsl_paths.py
 - COMP-030 | Stabilize generator architecture: single SoT `tools/build_api_aliases.py` + api_aliases contract validation + build consistency tests | P0 | agent | no | done | build_api_aliases.py, tools/build_api_aliases.py, tests/test_build_pipeline_contract.py
 - COMP-031 | Add `vfunc` compile-time expansion (top-level macro functions with defaults, fail-fast recursion/conflict checks) | P0 | agent | yes | done | mldsl_compile.py, tests/test_vfunc_expansion.py, README.md
+- COMP-032 | Fix select sugar compile path to canonical `select` module and add alias bridge for `сравнить_число_легко` | P0 | agent | yes | done | mldsl_compile.py

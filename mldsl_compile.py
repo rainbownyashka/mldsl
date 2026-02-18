@@ -1797,6 +1797,8 @@ def compile_entries(path: Path) -> list[dict]:
             "derzhit": "держит_предмет",
             "переменнаяравна": "значение_равно",
             "peremennayaravna": "znachenie_ravno",
+            "сравнитьчислолегко": "сравнить_число_облегчённо",
+            "sravnitchislolegko": "sravnit_chislo_oblegchenno",
         }
         leaf_key = leaf_syn.get(leaf_key, leaf_key)
         leaf_sh = {
@@ -2565,7 +2567,9 @@ def compile_entries(path: Path) -> list[dict]:
 
             prev_select = current_select
             canon, _spec = find_select_action(chain)
-            sel_tuple, sel_spec = compile_action_tuple("misc", canon, arg_str)
+            # Compile via canonical `select` module. `find_action` already keeps
+            # backward-compat fallback to legacy `misc` catalogs when needed.
+            sel_tuple, sel_spec = compile_action_tuple("select", canon, arg_str)
             current_actions.append(sel_tuple)
             current_select = sel_tuple
 

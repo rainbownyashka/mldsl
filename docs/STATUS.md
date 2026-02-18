@@ -108,6 +108,12 @@
     - recursion cycles / excessive expansion depth,
     - `func`/`vfunc` name conflicts.
   - coverage added in `tests/test_vfunc_expansion.py`.
+- select compile-path regression fix after generator architecture stabilization:
+  - select actions are now compiled through canonical `select` module in selection sugar path
+    (instead of hardcoded `misc`),
+  - added compatibility alias bridge for `select.if_*.сравнить_число_легко` ->
+    `сравнить_число_облегчённо`,
+  - fixes runtime compile error `Unknown action: misc.unnamed_*` in mixed canonical/legacy catalogs.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.
