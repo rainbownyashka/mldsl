@@ -132,6 +132,10 @@
 - VSCode helper completion detail canonicalization:
   - right-side completion detail for action suggestions now shows only canonical function id (`funcName`),
   - removes duplicated module/signature/alias noise in completion list (e.g. `player.<...>` details).
+- `multiselect` compile-time expansion (MVP):
+  - added `multiselect ifplayer|ifmob|ifentity <counterVar> <threshold>` precompile block,
+  - each weighted condition line supports `+ - * /` and `+= -= *= /=` suffixes,
+  - expansion uses canonical `select.*` + `var.set_*` actions and appends final `сравнить_число_легко >= threshold`.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.

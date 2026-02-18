@@ -558,6 +558,10 @@ VFUNC_RE = re.compile(
     rf"^\s*(?:vfunc|vfunction|вирт_функция)\s+([\w\u0400-\u04FF]+)\s*\(\s*([^\)]*)\s*\)\s*$",
     re.I,
 )
+MULTISELECT_RE = re.compile(
+    rf"^\s*multiselect\s+([\w\u0400-\u04FF_]+)\s+({NAME_RE})\s+(.+?)\s*$",
+    re.I,
+)
 LOOP_RE = re.compile(rf"^\s*(?:loop|цикл)\s+([\w\u0400-\u04FF]+)(?:\s+every)?\s+(\d+)\s*\{{\s*$", re.I)
 ASSIGN_RE = re.compile(
     rf"^\s*(?:(save)\s+)?({NAME_RE})\s*(?:~\s*)?(?:([+\-*/])\s*)?=\s*(.+?)\s*;?\s*$",
@@ -2208,10 +2212,194 @@ def compile_entries(path: Path) -> list[dict]:
 
         return expand_list(src_lines, [], 0)
 
+    def _normalize_multiselect_scope(scope_raw: str) -> tuple[str, str, set[str]]:
+        key = norm_ident(scope_raw)
+        scope_map = {
+            "ifplayer": ("ifplayer", "select.allplayers", {"ifplayer", "if_player", "еслиигрок"}),
+            "player": ("ifplayer", "select.allplayers", {"ifplayer", "if_player", "еслиигрок"}),
+            "ifmob": ("ifmob", "select.allmobs", {"ifmob", "if_mob", "еслимоб"}),
+            "mob": ("ifmob", "select.allmobs", {"ifmob", "if_mob", "еслимоб"}),
+            "ifentity": ("ifentity", "select.allentities", {"ifentity", "if_entity", "еслисущество", "еслисущность"}),
+            "entity": ("ifentity", "select.allentities", {"ifentity", "if_entity", "еслисущество", "еслисущность"}),
+        }
+        if key not in scope_map:
+            raise ValueError(
+                f"multiselect: unknown scope `{scope_raw}`. Use ifplayer|ifmob|ifentity (or player|mob|entity)."
+            )
+        return scope_map[key]
+
+    def _split_multiselect_weight(expr: str) -> tuple[str, str, str]:
+        s = (expr or "").strip()
+        if not s:
+            raise ValueError("multiselect: empty condition line")
+
+        in_str = False
+        str_ch = ""
+        esc = False
+        paren = 0
+        call_end = -1
+        for i, ch in enumerate(s):
+            if esc:
+                esc = False
+                continue
+            if ch == "\\":
+                esc = True
+                continue
+            if ch in ('"', "'"):
+                if in_str and ch == str_ch:
+                    in_str = False
+                    str_ch = ""
+                elif not in_str:
+                    in_str = True
+                    str_ch = ch
+                continue
+            if in_str:
+                continue
+            if ch == "(":
+                paren += 1
+                continue
+            if ch == ")":
+                paren -= 1
+                if paren == 0:
+                    call_end = i
+                continue
+        if call_end < 0:
+            raise ValueError(f"multiselect: expected call expression, got `{s}`")
+
+        call_expr = s[: call_end + 1].strip()
+        tail = s[call_end + 1 :].strip()
+        if not tail:
+            return call_expr, "+=", "1"
+
+        m = re.match(r"^(\+=|-=|\*=|/=|[+\-*/])\s*(.*?)\s*$", tail)
+        if not m:
+            raise ValueError(
+                f"multiselect: invalid weight suffix `{tail}`. Use +, -2, *3, /2, +=x, -=x, *=x, /=x."
+            )
+        op = m.group(1)
+        rhs = (m.group(2) or "").strip()
+        if op in {"+", "-", "*", "/"}:
+            op = f"{op}="
+        if not rhs:
+            rhs = "1"
+        return call_expr, op, rhs
+
+    def expand_multiselect_blocks(src_lines: list[str]) -> list[str]:
+        def _to_any_token(raw: str) -> str:
+            s = (raw or "").strip()
+            if not s:
+                return "num(0)"
+            if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*\(.*\)$", s):
+                return s
+            if re.fullmatch(r"[+-]?\d+(?:\.\d+)?", s):
+                if "." in s:
+                    return f"num({float(s)})"
+                return f"num({int(s)})"
+            if re.match(rf"^{NAME_RE}$", s):
+                return f"var({s})"
+            return s
+
+        out: list[str] = []
+        i = 0
+        n = len(src_lines)
+        while i < n:
+            raw = src_lines[i]
+            stripped = (raw or "").strip()
+            m = MULTISELECT_RE.match(stripped)
+            if not m:
+                out.append(raw)
+                i += 1
+                continue
+
+            block_indent = _line_indent(raw)
+            scope_raw = (m.group(1) or "").strip()
+            counter_var = (m.group(2) or "").strip()
+            threshold = (m.group(3) or "").strip()
+            if not re.match(rf"^{NAME_RE}$", counter_var):
+                raise ValueError(f"multiselect: invalid counter variable `{counter_var}`")
+            if not threshold:
+                raise ValueError("multiselect: threshold is required")
+            scope_key, all_selector_call, expected_scopes = _normalize_multiselect_scope(scope_raw)
+
+            i += 1
+            body_raw: list[str] = []
+            while i < n:
+                cur = src_lines[i]
+                cur_s = (cur or "").strip()
+                if not cur_s:
+                    body_raw.append("")
+                    i += 1
+                    continue
+                if len(_line_indent(cur)) > len(block_indent):
+                    body_raw.append(cur)
+                    i += 1
+                    continue
+                break
+
+            if not any((ln or "").strip() and not (ln or "").strip().startswith("#") for ln in body_raw):
+                raise ValueError("multiselect: body is empty")
+
+            out.append(block_indent + all_selector_call)
+            out.append(block_indent + f"{counter_var} = 0")
+
+            for line in body_raw:
+                st = (line or "").strip()
+                if not st or st.startswith("#"):
+                    continue
+                call_expr, op, rhs = _split_multiselect_weight(st)
+                head = call_expr.split("(", 1)[0].strip()
+                chain_raw = [p for p in head.split(".") if p]
+                if len(chain_raw) < 3:
+                    raise ValueError(f"multiselect: invalid condition call `{call_expr}`")
+                mod_name = norm_ident(chain_raw[0])
+                func_chain = ".".join(chain_raw[1:])
+                if mod_name not in {"select", "выборка"}:
+                    raise ValueError(f"multiselect: condition must be select.* call, got `{call_expr}`")
+                chain_parts = [norm_ident(p) for p in chain_raw[1:] if p]
+                if chain_parts[0] not in expected_scopes:
+                    raise ValueError(
+                        f"multiselect: scope mismatch, expected `{scope_key}` condition, got `{func_chain.split('.')[0]}`"
+                    )
+                out.append(block_indent + all_selector_call)
+                out.append(block_indent + call_expr)
+                counter_tok = f"var({counter_var})"
+                rhs_tok = _to_any_token(rhs)
+                if op == "+=":
+                    out.append(
+                        block_indent
+                        + f"var.set_sum(var={counter_tok}, values=arr({counter_tok}, {rhs_tok}))"
+                    )
+                elif op == "-=":
+                    out.append(
+                        block_indent
+                        + f"var.set_difference(var={counter_tok}, value1={counter_tok}, value2={rhs_tok})"
+                    )
+                elif op == "*=":
+                    out.append(
+                        block_indent
+                        + f"var.set_product(var={counter_tok}, values=arr({counter_tok}, {rhs_tok}))"
+                    )
+                elif op == "/=":
+                    out.append(
+                        block_indent
+                        + f"var.set_quotient(var={counter_tok}, value1={counter_tok}, value2={rhs_tok})"
+                    )
+                else:
+                    raise ValueError(f"multiselect: unsupported operation `{op}`")
+
+            out.append(block_indent + all_selector_call)
+            out.append(
+                block_indent
+                + f'select.{scope_key}.сравнить_число_легко({counter_var}, {threshold}, тип_проверки="≥ (Больше или равно)")'
+            )
+
+        return out
+
     lines, imported_namespaces = load_with_imports(path)
     lines = normalize_multiline_calls(lines)
     lines, vfunc_defs = collect_vfunc_defs(lines)
     lines = expand_vfunc_calls(lines, vfunc_defs)
+    lines = expand_multiselect_blocks(lines)
 
     # Collect function signatures (name -> param list) in advance so calls can be validated
     # even if the function is declared later in the file.

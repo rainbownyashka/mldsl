@@ -39,3 +39,4 @@ Format: `id | task | priority | owner | needs_user_test | state | links`
 - COMP-035 | Reduce VSCode helper completion visual noise for `select.*` by hiding long canonical alias variants in right-side detail | P1 | agent | yes | done | tools/mldsl-vscode/extension.js
 - COMP-036 | Remove parameter list from right-side completion detail for `select.*` entries in VSCode helper | P1 | agent | yes | done | tools/mldsl-vscode/extension.js
 - COMP-037 | Show only canonical function id in right-side completion detail (remove module/signature alias noise) | P1 | agent | yes | done | tools/mldsl-vscode/extension.js
+- COMP-038 | Add `multiselect` compile-time sugar with weighted condition operations (`+ - * /` and `+= -= *= /=`) and threshold comparison tail | P0 | agent | yes | done | mldsl_compile.py, tests/test_multiselect_expansion.py, README.md

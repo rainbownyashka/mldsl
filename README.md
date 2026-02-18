@@ -53,6 +53,26 @@ event("Вход") {
 - `vfunc` только top-level.
 - рекурсия/циклы между `vfunc` запрещены (fail-fast).
 
+## `multiselect` (MVP)
+
+Поддержан compile-time sugar для взвешенной выборки:
+
+```mldsl
+event("Вход") {
+    multiselect ifplayer %selected%sel 1
+        select.ifplayer.держит(item=item("minecraft:stick"))+
+        select.ifplayer.переменная_существует(var=%selected%apiversion)-2
+        select.ifplayer.переменная_существует(var=%selected%specvar)*=%selected%specvar
+}
+```
+
+- Блок разворачивается на этапе компиляции в обычные `select.*` и `var.set_*` действия.
+- Поддержаны веса:
+  - коротко: `+`, `-2`, `*3`, `/2`
+  - полно: `+=x`, `-=x`, `*=x`, `/=x`
+- В конце автоматически добавляется пороговая проверка:
+  - `select.ifplayer|ifmob|ifentity.сравнить_число_легко(counter, threshold, тип_проверки="≥ (Больше или равно)")`
+
 ## Разработка (генерация API/доков)
 
 Локальная генерация `out/` требует экспортов из игры:
