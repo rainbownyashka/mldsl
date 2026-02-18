@@ -915,6 +915,9 @@ def compile_line(api: dict, line: str):
         raise ValueError(f"Unknown action: {module}.{func}")
 
     kv, pos = parse_call_args(arg_str)
+    for _k, _v in (kv or {}).items():
+        if (_v or "").strip() == "":
+            raise ValueError(f"{module}.{func}: empty value for argument `{_k}`")
 
     # Accept Cyrillic keyword names for params/enums by transliterating to canonical keys.
     # Example: if_player.режим_игрока(режим_игры="Креатив")
@@ -1954,6 +1957,74 @@ def compile_entries(path: Path) -> list[dict]:
             i += 1
         return raw[:i]
 
+    def _paren_balance_delta(s: str) -> int:
+        bal = 0
+        in_str = False
+        str_ch = ""
+        esc = False
+        for ch in s or "":
+            if esc:
+                esc = False
+                continue
+            if ch == "\\":
+                esc = True
+                continue
+            if ch in ('"', "'"):
+                if in_str and ch == str_ch:
+                    in_str = False
+                    str_ch = ""
+                elif not in_str:
+                    in_str = True
+                    str_ch = ch
+                continue
+            if in_str:
+                continue
+            if ch == "(":
+                bal += 1
+            elif ch == ")":
+                bal -= 1
+        return bal
+
+    def normalize_multiline_calls(src_lines: list[str]) -> list[str]:
+        out: list[str] = []
+        collecting = False
+        call_indent = ""
+        parts: list[str] = []
+        balance = 0
+        start_re = re.compile(r"^\s*[\w\u0400-\u04FF]+\.[\w\u0400-\u04FF]+\s*\(", re.I)
+
+        for raw in src_lines:
+            s = raw if raw is not None else ""
+            st = s.strip()
+            if not collecting:
+                if not st or st.startswith("#"):
+                    out.append(s)
+                    continue
+                if start_re.match(st):
+                    delta = _paren_balance_delta(s)
+                    if delta > 0:
+                        collecting = True
+                        call_indent = _line_indent(s)
+                        parts = [st]
+                        balance = delta
+                        continue
+                out.append(s)
+                continue
+
+            if st and not st.startswith("#"):
+                parts.append(st)
+            balance += _paren_balance_delta(s)
+            if balance <= 0:
+                out.append(call_indent + " ".join(p for p in parts if p))
+                collecting = False
+                call_indent = ""
+                parts = []
+                balance = 0
+
+        if collecting:
+            raise ValueError("multiline call: missing closing `)`")
+        return out
+
     def _parse_vfunc_params(raw: str, name: str) -> tuple[list[str], dict[str, str]]:
         names: list[str] = []
         defaults: dict[str, str] = {}
@@ -2139,6 +2210,7 @@ def compile_entries(path: Path) -> list[dict]:
         return expand_list(src_lines, [], 0)
 
     lines, imported_namespaces = load_with_imports(path)
+    lines = normalize_multiline_calls(lines)
     lines, vfunc_defs = collect_vfunc_defs(lines)
     lines = expand_vfunc_calls(lines, vfunc_defs)
 

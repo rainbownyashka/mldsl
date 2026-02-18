@@ -34,3 +34,4 @@ Format: `id | task | priority | owner | needs_user_test | state | links`
 - COMP-030 | Stabilize generator architecture: single SoT `tools/build_api_aliases.py` + api_aliases contract validation + build consistency tests | P0 | agent | no | done | build_api_aliases.py, tools/build_api_aliases.py, tests/test_build_pipeline_contract.py
 - COMP-031 | Add `vfunc` compile-time expansion (top-level macro functions with defaults, fail-fast recursion/conflict checks) | P0 | agent | yes | done | mldsl_compile.py, tests/test_vfunc_expansion.py, README.md
 - COMP-032 | Fix select sugar compile path to canonical `select` module and add alias bridge for `сравнить_число_легко` | P0 | agent | yes | done | mldsl_compile.py
+- COMP-033 | Harden compiler call parsing: support multiline `module.func(...)` and fail-fast on empty named arg values (`var=`) | P0 | agent | yes | done | mldsl_compile.py, tests/test_compile_call_parsing.py

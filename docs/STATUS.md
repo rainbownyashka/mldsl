@@ -114,6 +114,11 @@
   - added compatibility alias bridge for `select.if_*.сравнить_число_легко` ->
     `сравнить_число_облегчённо`,
   - fixes runtime compile error `Unknown action: misc.unnamed_*` in mixed canonical/legacy catalogs.
+- call parsing hardening for compile stability:
+  - multiline `module.func(...)` calls are now normalized before parse, so multiline argument formatting
+    no longer degrades into unrelated assignment actions,
+  - named args with empty value (e.g. `var=`) now fail-fast with explicit compiler error instead of silently
+    emitting broken slots into `plan.json`.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.
