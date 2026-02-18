@@ -37,3 +37,4 @@ Format: `id | task | priority | owner | needs_user_test | state | links`
 - COMP-033 | Harden compiler call parsing: support multiline `module.func(...)` and omit empty named arg values (`var=`) from emitted plan args | P0 | agent | yes | done | mldsl_compile.py, tests/test_compile_call_parsing.py
 - COMP-034 | Fix VSCode helper select completion module routing (`select.ifplayer/ifmob/ifentity`) to use canonical `select` aliases instead of legacy `misc` | P0 | agent | yes | done | tools/mldsl-vscode/extension.js
 - COMP-035 | Reduce VSCode helper completion visual noise for `select.*` by hiding long canonical alias variants in right-side detail | P1 | agent | yes | done | tools/mldsl-vscode/extension.js
+- COMP-036 | Remove parameter list from right-side completion detail for `select.*` entries in VSCode helper | P1 | agent | yes | done | tools/mldsl-vscode/extension.js

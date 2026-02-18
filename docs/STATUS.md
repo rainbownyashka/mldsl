@@ -126,6 +126,9 @@
 - VSCode helper compact completion detail for `select.*`:
   - completion right-side detail no longer shows long canonical alias variants (e.g. `ifplayer_sravnit_*`),
   - `select` entries now show compact signature (`select.(params)`) to reduce visual clutter.
+- VSCode helper select completion detail simplification:
+  - `select.*` completion detail no longer renders parameter lists on the right side,
+  - right-side detail now shows only compact action context (`select` + menu label when available).
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.

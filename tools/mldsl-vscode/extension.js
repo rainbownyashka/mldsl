@@ -1059,9 +1059,8 @@ function activate(context) {
             if (!isSelectSpec(spec)) continue;
             const funcName = entry.funcName;
             const item = new vscode.CompletionItem(alias, vscode.CompletionItemKind.Function);
-            const params = (spec.params || []).map((p) => p.name).join(", ");
             const menuName = spec.menu ? ` · ${spec.menu}` : "";
-            item.detail = `select.(${params})${menuName}`;
+            item.detail = `select${menuName}`;
             item.documentation = specToMarkdown(spec);
             items.push(item);
           }
@@ -1318,7 +1317,7 @@ function activate(context) {
           const params = (spec.params || []).map((p) => p.name).join(", ");
           const menuName = spec.menu ? ` — ${spec.menu}` : "";
           item.detail = info.module === "select"
-            ? `${info.module}.(${params})${menuName}`
+            ? `${info.module}${menuName}`
             : `${info.module}.${funcName}(${params})${menuName}`;
           if (info.module !== "select" && alias !== funcName) {
             item.detail += `  (alias of ${funcName})`;
