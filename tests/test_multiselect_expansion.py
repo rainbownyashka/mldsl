@@ -6,6 +6,22 @@ from test_compile_select_and_sugar import _api_base
 
 def _api_multiselect():
     api = _api_base()
+    api["var"]["set_sum"]["params"] = [
+        {"name": "var", "slot": 12, "mode": "VARIABLE"},
+        {"name": "num", "slot": 14, "mode": "NUMBER"},
+    ]
+    api["var"]["set_difference"]["params"] = [
+        {"name": "var", "slot": 12, "mode": "VARIABLE"},
+        {"name": "num", "slot": 14, "mode": "NUMBER"},
+    ]
+    api["var"]["set_product"]["params"] = [
+        {"name": "var", "slot": 12, "mode": "VARIABLE"},
+        {"name": "num", "slot": 14, "mode": "NUMBER"},
+    ]
+    api["var"]["set_quotient"]["params"] = [
+        {"name": "var", "slot": 12, "mode": "VARIABLE"},
+        {"name": "num", "slot": 14, "mode": "NUMBER"},
+    ]
     misc = api.setdefault("misc", {})
     misc.update(
         {

@@ -138,6 +138,8 @@
   - expansion uses canonical `select.*` + `var.set_*` actions and appends final `сравнить_число_легко >= threshold`.
   - multiline condition calls inside `multiselect` are normalized before expansion
     (e.g. `select.ifplayer.держит(` with args on next lines).
+  - weighted ops now target real var action signatures (`var` + `num`) to avoid incomplete `+/-/*//` plan args.
+  - plan smoke-check practice: after compile-sugar changes, verify emitted `plan.json` slots against live API aliases.
 
 ## Known regressions
 - Catalog drift risk when source exports are stale.

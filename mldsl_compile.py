@@ -2367,22 +2367,22 @@ def compile_entries(path: Path) -> list[dict]:
                 if op == "+=":
                     out.append(
                         block_indent
-                        + f"var.set_sum(var={counter_tok}, values=arr({counter_tok}, {rhs_tok}))"
+                        + f"var.set_sum(var={counter_tok}, num={rhs_tok})"
                     )
                 elif op == "-=":
                     out.append(
                         block_indent
-                        + f"var.set_difference(var={counter_tok}, value1={counter_tok}, value2={rhs_tok})"
+                        + f"var.set_difference(var={counter_tok}, num={rhs_tok})"
                     )
                 elif op == "*=":
                     out.append(
                         block_indent
-                        + f"var.set_product(var={counter_tok}, values=arr({counter_tok}, {rhs_tok}))"
+                        + f"var.set_product(var={counter_tok}, num={rhs_tok})"
                     )
                 elif op == "/=":
                     out.append(
                         block_indent
-                        + f"var.set_quotient(var={counter_tok}, value1={counter_tok}, value2={rhs_tok})"
+                        + f"var.set_quotient(var={counter_tok}, num={rhs_tok})"
                     )
                 else:
                     raise ValueError(f"multiselect: unsupported operation `{op}`")

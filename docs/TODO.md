@@ -41,3 +41,4 @@ Format: `id | task | priority | owner | needs_user_test | state | links`
 - COMP-037 | Show only canonical function id in right-side completion detail (remove module/signature alias noise) | P1 | agent | yes | done | tools/mldsl-vscode/extension.js
 - COMP-038 | Add `multiselect` compile-time sugar with weighted condition operations (`+ - * /` and `+= -= *= /=`) and threshold comparison tail | P0 | agent | yes | done | mldsl_compile.py, tests/test_multiselect_expansion.py, README.md
 - COMP-039 | Fix `multiselect` multiline condition parsing (`select.if*.foo(` across several lines) via generalized call normalization | P0 | agent | yes | done | mldsl_compile.py, tests/test_multiselect_expansion.py
+- COMP-040 | Fix `multiselect` weighted op emission to match real `var.set_*` signatures (`var`,`num`) and add plan-output smoke verification | P0 | agent | yes | done | mldsl_compile.py, tests/test_multiselect_expansion.py
