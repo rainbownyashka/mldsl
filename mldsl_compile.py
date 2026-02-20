@@ -2,6 +2,7 @@ import json
 import re
 import argparse
 import ast
+import os
 from pathlib import Path
 
 from mldsl_paths import (
@@ -18,6 +19,8 @@ ALIASES_PATH = aliases_json_path()
 ALLACTIONS_PATH = allactions_txt_path()
 GAMEVALUES_PATH = gamevalues_path()
 MAX_CMD_LEN = 240
+MAX_ACTIONS_PER_ROW = 43
+AUTO_SPLIT_FUNC_PREFIX = "__autosplit_row_"
 
 # Internal stacks for function args/returns. Names must be rare to avoid clashing with user variables in the world.
 ARGS_STACK_NAME = "__mldsl_args"
@@ -38,6 +41,17 @@ def parse_item_display_name(raw: str) -> str:
     if "|" in s:
         s = s.split("|", 1)[0].strip()
     return s
+
+
+def normalized_call_limit() -> int | None:
+    raw = os.environ.get("MLDSL_NORMALIZED_CALL_LIMIT", "").strip()
+    if not raw:
+        return None
+    try:
+        v = int(raw)
+    except Exception:
+        return None
+    return v if v > 0 else None
 
 
 def load_known_events() -> dict:
@@ -528,6 +542,10 @@ def wrap_value(mode: str | None, value: str) -> str:
             return f"var({v})"
         return f"text({v})"
     if m == "NUMBER":
+        # Sugar: bare identifiers in NUMBER slots are treated as variable references.
+        # Use explicit num(...) or numeric literal to force constant behavior.
+        if re.match(rf"^{NAME_RE}$", v) and safe_eval_number_expr(v) is None:
+            return f"var({v})"
         return f"num({v})"
     if m == "VARIABLE":
         return f"var({v})"
@@ -536,6 +554,8 @@ def wrap_value(mode: str | None, value: str) -> str:
     if m == "ARRAY":
         return f"arr({v})"
     if m == "ITEM":
+        return f"item({v})"
+    if m == "BLOCK":
         return f"item({v})"
     return v
 
@@ -574,6 +594,7 @@ IFPLAYER_RE = re.compile(r"^\s*if_?player\.([\w\u0400-\u04FF]+)(?:\s*\((.*)\))?\
 SELECTOBJECT_IFPLAYER_RE = re.compile(r"^\s*SelectObject\.player\.IfPlayer\.([\w\u0400-\u04FF]+)\s*\{\s*$", re.I)
 IFGAME_RE = re.compile(r"^\s*if_?game\.([\w\u0400-\u04FF]+)(?:\s*\((.*)\))?\s*\{\s*$", re.I)
 IFGAME_OLD_RE = re.compile(r"^\s*IfGame\.([\w\u0400-\u04FF]+)\s*\{\s*$", re.I)
+IFVALUE_RE = re.compile(r"^\s*if_?value\.([\w\u0400-\u04FF]+)(?:\s*\((.*)\))?\s*\{\s*$", re.I)
 IF_RE = re.compile(r"^\s*if\s+(.+?)\s*\{\s*$", re.I)
 IFTEXT_RE = re.compile(r"^\s*iftext\s+(.+?)\s*\{\s*$", re.I)
 IFEXISTS_RE = re.compile(rf"^\s*ifexists\s*(?:\(\s*({NAME_RE})\s*\)|\s+({NAME_RE}))\s*\{{\s*$", re.I)
@@ -1249,7 +1270,7 @@ def compile_builtin(api: dict, line: str, func_sigs: dict[str, list[str]] | None
                 val = wrap_any_value(raw_arg)
                 res = compile_line(
                     api,
-                    f"array.vstavit_v_massiv(arr=arr({ARGS_STACK_NAME}), number=num({STACK_TOP_INDEX}), value={val})",
+                    f"array.vstavit_v_massiv(arr=arr({ARGS_STACK_NAME}), num=num({STACK_TOP_INDEX}), value={val})",
                 )
                 if not res:
                     raise ValueError("args: не найдено действие 'Вставить в массив'")
@@ -1319,7 +1340,7 @@ def compile_builtin(api: dict, line: str, func_sigs: dict[str, list[str]] | None
         if m_idx:
             src_arr = m_idx.group(1)
             idx = int(m_idx.group(2))
-            synthetic = f"array.get_array(arr=arr({src_arr}), number=num({idx}), var={wrap_var_target(name, saved)})"
+            synthetic = f"array.get_array(arr=arr({src_arr}), num=num({idx}), var={wrap_var_target(name, saved)})"
             res = compile_line(api, synthetic)
             if not res:
                 raise ValueError("array index: не найдено действие 'Получить элемент массива'")
@@ -1371,13 +1392,13 @@ def compile_builtin(api: dict, line: str, func_sigs: dict[str, list[str]] | None
                 # 2) read ret from __ret[top] into target var
                 target_var = wrap_var_target(name, saved)
                 res = compile_line(
-                    api, f"array.get_array(arr=arr({RET_STACK_NAME}), number=num({STACK_TOP_INDEX}), var={target_var})"
+                    api, f"array.get_array(arr=arr({RET_STACK_NAME}), num=num({STACK_TOP_INDEX}), var={target_var})"
                 )
                 if not res:
                     raise ValueError("return/pop: не найдено действие 'Получить элемент массива'")
                 out.append(res)
                 # 3) pop __ret[top]
-                res = compile_line(api, f"array.remove_array(arr=arr({RET_STACK_NAME}), number=num({STACK_TOP_INDEX}))")
+                res = compile_line(api, f"array.remove_array(arr=arr({RET_STACK_NAME}), num=num({STACK_TOP_INDEX}))")
                 if not res:
                     raise ValueError("return/pop: не найдено действие 'Удалить элемент массива'")
                 out.append(res)
@@ -1571,7 +1592,7 @@ def compile_builtin(api: dict, line: str, func_sigs: dict[str, list[str]] | None
         # As a statement-call, discard one return value to keep __ret clean.
         # (Every func gets an implicit return if it doesn't have explicit return.)
         if not async_flag:
-            res = compile_line(api, f"array.remove_array(arr=arr({RET_STACK_NAME}), number=num({STACK_TOP_INDEX}))")
+            res = compile_line(api, f"array.remove_array(arr=arr({RET_STACK_NAME}), num=num({STACK_TOP_INDEX}))")
             if not res:
                 raise ValueError("return/discard: не найдено действие 'Удалить элемент массива'")
             out.append(res)
@@ -1738,6 +1759,21 @@ def compile_entries(path: Path) -> list[dict]:
         s = strip_colors(s or "").lower()
         s = re.sub(r"[\s_\\-]+", "", s)
         return s
+
+    def _spec_is_conditional(module_name: str, spec: dict) -> bool:
+        m = norm_ident(module_name or "")
+        if m in {"ifvalue", "if_value", "ifplayer", "if_player", "ifentity", "if_entity", "ifgame", "if_game"}:
+            return True
+        if m in {"select", "выборка"}:
+            s2 = norm_ident(spec.get("sign2", ""))
+            return s2 in {"игрокпоусловию", "мобпоусловию", "сущностьпоусловию"}
+        return False
+
+    def _extract_not_prefix(src_line: str) -> tuple[bool, str]:
+        m = re.match(r"^\s*(?:not|не)\s+(.+?)\s*$", src_line or "", re.I)
+        if not m:
+            return False, src_line
+        return True, (m.group(1) or "").strip()
 
     def compile_action_tuple(module: str, func: str, arg_str: str = "") -> tuple[str, str, str]:
         res = compile_line(api, f"{module}.{func}({arg_str})")
@@ -1989,6 +2025,7 @@ def compile_entries(path: Path) -> list[dict]:
         return bal
 
     def normalize_multiline_calls(src_lines: list[str]) -> list[str]:
+        limit = normalized_call_limit()
         out: list[str] = []
         collecting = False
         call_indent = ""
@@ -2018,7 +2055,14 @@ def compile_entries(path: Path) -> list[dict]:
                 parts.append(st)
             balance += _paren_balance_delta(s)
             if balance <= 0:
-                out.append(call_indent + " ".join(p for p in parts if p))
+                normalized = call_indent + " ".join(p for p in parts if p)
+                # If a limit is configured, keep one char budget for the closing '}' token.
+                if limit is not None and len(normalized) > (limit - 1):
+                    raise ValueError(
+                        f"multiline call too long after normalization: {len(normalized)} > "
+                        f"{limit - 1} (1 char reserved for closing '}}')"
+                    )
+                out.append(normalized)
                 collecting = False
                 call_indent = ""
                 parts = []
@@ -2426,45 +2470,123 @@ def compile_entries(path: Path) -> list[dict]:
         if vname in func_sigs:
             raise ValueError(f"name conflict: `{vname}` defined as both func and vfunc")
     entries: list[dict] = []
+    used_func_names: set[str] = set(func_sigs.keys()) | set(vfunc_defs.keys())
+    auto_func_counter = 1
 
     in_block = False
     current_kind = None  # event|func|loop
     current_name = None
     current_loop_ticks = None
-    current_actions: list[tuple[str, str, str]] = []
+    # action tuple: (block, name, args[, negated])
+    current_actions: list[tuple] = []
     block_stack: list[str] = []  # nested blocks inside event/func/loop (e.g. if)
     current_func_params: list[str] = []
     current_func_has_return = False
+    current_safe_boundaries: list[tuple[int, tuple[str, str, str] | None]] = []
+    # Parallel to current_actions: open `if` depth right after each emitted action.
+    # Used by fallback row wrapping to reserve row space for runtime implicit closing pistons.
+    current_if_depths: list[int] = []
+
+    def current_if_depth() -> int:
+        return sum(1 for k in block_stack if k == "if")
+
+    def mark_safe_boundary():
+        if not current_kind or block_stack:
+            return
+        pos = len(current_actions)
+        if pos <= 0:
+            return
+        sel = None
+        if current_select is not None:
+            sel = (current_select[0], current_select[1], current_select[2])
+        if current_safe_boundaries and current_safe_boundaries[-1][0] == pos:
+            current_safe_boundaries[-1] = (pos, sel)
+            return
+        current_safe_boundaries.append((pos, sel))
+
+    def append_action(action: tuple):
+        current_actions.append(action)
+        current_if_depths.append(current_if_depth())
+        mark_safe_boundary()
+
+    def append_if_open_action(action: tuple):
+        # Tag conditional opener so autosplit can reason about scope structure.
+        if len(action) >= 5:
+            tagged = action
+        else:
+            tagged = (action[0], action[1], action[2], False, {"if_open": True})
+        append_action(tagged)
+
+    def _is_if_open_action(action: tuple) -> bool:
+        try:
+            return len(action) > 4 and isinstance(action[4], dict) and bool(action[4].get("if_open"))
+        except Exception:
+            return False
+
+    def _calc_if_depths(actions: list[tuple]) -> list[int]:
+        out: list[int] = []
+        depth = 0
+        for a in actions:
+            if _is_if_open_action(a):
+                depth += 1
+            out.append(max(0, depth))
+            if (a[0] == "skip") and depth > 0:
+                depth -= 1
+        return out
+
+    def _calc_safe_boundaries(actions: list[tuple]) -> list[tuple[int, tuple[str, str, str] | None]]:
+        out: list[tuple[int, tuple[str, str, str] | None]] = []
+        depth = 0
+        for i, a in enumerate(actions, start=1):
+            if _is_if_open_action(a):
+                depth += 1
+            if depth == 0:
+                out.append((i, None))
+            if (a[0] == "skip") and depth > 0:
+                depth -= 1
+        return out
+
+    def _try_extract_if_scope_to_helper(
+        actions: list[tuple],
+        call_action: tuple,
+    ) -> tuple[list[tuple], list[tuple]] | None:
+        # Find a conditional scope "if ... { BODY }" and replace BODY with call(helper_name),
+        # keeping opener+closer in the same row.
+        stack: list[int] = []
+        candidates: list[tuple[int, int]] = []
+        for idx, a in enumerate(actions):
+            if _is_if_open_action(a):
+                stack.append(idx)
+                continue
+            if a[0] == "skip" and stack:
+                op = stack.pop()
+                # scope body must be non-empty
+                if idx - op >= 2:
+                    candidates.append((op, idx))
+        if not candidates:
+            return None
+
+        # Prefer candidates that yield helper <= row budget; fallback to max removable body.
+        def _score(op: int, cl: int) -> tuple[int, int, int]:
+            body_len = cl - op - 1
+            fits = 1 if body_len <= MAX_ACTIONS_PER_ROW else 0
+            removable = max(0, body_len - 1)
+            return (fits, removable, -op)
+
+        op, cl = max(candidates, key=lambda t: _score(t[0], t[1]))
+        body = actions[op + 1 : cl]
+        if not body:
+            return None
+        rewritten = actions[: op + 1] + [call_action] + actions[cl:]
+        return rewritten, body
 
     def flush_block():
         nonlocal current_kind, current_name, current_loop_ticks, current_actions, current_func_params, current_func_has_return
+        nonlocal current_safe_boundaries, current_if_depths
+        nonlocal auto_func_counter
         if not current_kind:
             return
-
-        if current_kind == "event":
-            ev_raw = (current_name or "").strip()
-            if not ev_raw:
-                # Placeholder from exportcode empty sign blocks.
-                entries.append({"block": "diamond_block", "name": "Событие игрока||", "args": "no"})
-            else:
-                ev_name = event_variant_to_name(ev_raw)
-                nk = norm_key(ev_name)
-                if known_events and nk in known_events:
-                    block, menu_name, expected_sign2 = known_events[nk]
-                    entries.append({"block": block, "name": f"{menu_name}||{expected_sign2}", "args": "no"})
-                elif known_events:
-                    raise ValueError(f"неизвестное событие: {ev_name}")
-                else:
-                    # Fallback when no catalog is available.
-                    entries.append({"block": "diamond_block", "name": ev_name, "args": "no"})
-        elif current_kind == "func":
-            entries.append({"block": "lapis_block", "name": (current_name or ""), "args": "no"})
-        elif current_kind == "loop":
-            ticks = int(current_loop_ticks or 5)
-            ticks = max(5, ticks)
-            entries.append({"block": "emerald_block", "name": (current_name or ""), "args": str(ticks)})
-        else:
-            raise ValueError(f"Unknown block kind: {current_kind}")
+        pending_extracted_helpers: list[tuple[str, list[tuple]]] = []
 
         def to_tuple(res):
             pieces, spec = res
@@ -2487,37 +2609,323 @@ def compile_entries(path: Path) -> list[dict]:
                 string_name = f"{(menu or sign2)}||{expected_sign2}"
             return (block_tok, string_name, args_str)
 
+        def alloc_auto_func_name() -> str:
+            nonlocal auto_func_counter
+            while True:
+                name = f"{AUTO_SPLIT_FUNC_PREFIX}{auto_func_counter}"
+                auto_func_counter += 1
+                if name not in used_func_names:
+                    used_func_names.add(name)
+                    return name
+
+        def build_call_action_tuple(func_name: str) -> tuple:
+            call_res = compile_builtin(api, f"call({func_name})")
+            if not call_res:
+                raise ValueError("auto-split: call() compile failed")
+            first = call_res[0]
+            return to_tuple(first)
+
+        def emit_action_rows(
+            action_list: list[tuple],
+            *,
+            warn_context: str,
+            continuation_header: dict | None = None,
+            action_if_depths: list[int] | None = None,
+            reserve_implicit_if_closers: bool = False,
+        ):
+            # Physical row budget includes the leading header block (event/func/loop).
+            # We emit that header before calling this helper, so start with 1 occupied slot.
+            actions_in_row = 1
+            prev_if_depth = 0
+            for idx, action in enumerate(action_list, start=1):
+                row_cap = MAX_ACTIONS_PER_ROW
+                if reserve_implicit_if_closers:
+                    row_cap = MAX_ACTIONS_PER_ROW - max(0, prev_if_depth)
+                    if row_cap <= 1:
+                        raise ValueError(
+                            f"row auto-split: nested if depth ({prev_if_depth}) leaves no room for actions in {warn_context}"
+                        )
+                if actions_in_row >= row_cap:
+                    if entries and entries[-1].get("block") != "newline":
+                        print(
+                            f"[warn] row auto-split: exceeded {MAX_ACTIONS_PER_ROW} actions in {warn_context}; "
+                            f"inserted newline before action #{idx}",
+                            file=__import__("sys").stderr,
+                        )
+                        entries.append({"block": "newline"})
+                        if continuation_header is not None:
+                            # Runtime requires a leading block on each physical row.
+                            entries.append(dict(continuation_header))
+                    # New row starts with header, so one slot is already consumed.
+                    actions_in_row = 1
+                block = action[0]
+                name = action[1]
+                args = action[2]
+                negated = bool(action[3]) if len(action) > 3 else False
+                row = {"block": block, "name": name, "args": (args or "no")}
+                if negated:
+                    row["negated"] = True
+                entries.append(row)
+                actions_in_row += 1
+                if action_if_depths is not None and idx - 1 < len(action_if_depths):
+                    prev_if_depth = max(0, int(action_if_depths[idx - 1]))
+
+        def emit_block_header(kind: str, name: str | None, ticks: int | None):
+            if kind == "event":
+                ev_raw = (name or "").strip()
+                if not ev_raw:
+                    entries.append({"block": "diamond_block", "name": "Событие игрока||", "args": "no"})
+                else:
+                    ev_name = event_variant_to_name(ev_raw)
+                    nk = norm_key(ev_name)
+                    if known_events and nk in known_events:
+                        block, menu_name, expected_sign2 = known_events[nk]
+                        entries.append({"block": block, "name": f"{menu_name}||{expected_sign2}", "args": "no"})
+                    elif known_events:
+                        raise ValueError(f"неизвестное событие: {ev_name}")
+                    else:
+                        entries.append({"block": "diamond_block", "name": ev_name, "args": "no"})
+            elif kind == "func":
+                entries.append({"block": "lapis_block", "name": (name or ""), "args": "no"})
+            elif kind == "loop":
+                t = int(ticks or 5)
+                t = max(5, t)
+                entries.append({"block": "emerald_block", "name": (name or ""), "args": str(t)})
+            else:
+                raise ValueError(f"Unknown block kind: {kind}")
+
+        def make_header(kind: str, name: str | None, ticks: int | None) -> dict:
+            if kind == "event":
+                ev_raw = (name or "").strip()
+                if not ev_raw:
+                    return {"block": "diamond_block", "name": "Событие игрока||", "args": "no"}
+                ev_name = event_variant_to_name(ev_raw)
+                nk = norm_key(ev_name)
+                if known_events and nk in known_events:
+                    block, menu_name, expected_sign2 = known_events[nk]
+                    return {"block": block, "name": f"{menu_name}||{expected_sign2}", "args": "no"}
+                if known_events:
+                    raise ValueError(f"неизвестное событие: {ev_name}")
+                return {"block": "diamond_block", "name": ev_name, "args": "no"}
+            if kind == "func":
+                return {"block": "lapis_block", "name": (name or ""), "args": "no"}
+            if kind == "loop":
+                t = int(ticks or 5)
+                t = max(5, t)
+                return {"block": "emerald_block", "name": (name or ""), "args": str(t)}
+            raise ValueError(f"Unknown block kind: {kind}")
+
         # Function prologue: pop args stack into declared param variables (sync-only protocol).
         if current_kind == "func" and current_func_params:
             insert_at = 0
             for pn in current_func_params:
                 res = compile_line(
                     api,
-                    f"array.get_array(arr=arr({ARGS_STACK_NAME}), number=num({STACK_TOP_INDEX}), var=var({pn}))",
+                    f"array.get_array(arr=arr({ARGS_STACK_NAME}), num=num({STACK_TOP_INDEX}), var=var({pn}))",
                 )
                 if not res:
                     raise ValueError("func args: не найдено действие 'Получить элемент массива'")
                 current_actions.insert(insert_at, to_tuple(res))
+                current_if_depths.insert(insert_at, 0)
                 insert_at += 1
                 res = compile_line(
-                    api, f"array.remove_array(arr=arr({ARGS_STACK_NAME}), number=num({STACK_TOP_INDEX}))"
+                    api, f"array.remove_array(arr=arr({ARGS_STACK_NAME}), num=num({STACK_TOP_INDEX}))"
                 )
                 if not res:
                     raise ValueError("func args: не найдено действие 'Удалить элемент массива'")
                 current_actions.insert(insert_at, to_tuple(res))
+                current_if_depths.insert(insert_at, 0)
                 insert_at += 1
 
         # Implicit return to keep return stack consistent.
         if current_kind == "func" and not current_func_has_return:
             res = compile_line(
-                api, f"array.vstavit_v_massiv(arr=arr({RET_STACK_NAME}), number=num({STACK_TOP_INDEX}), value=text())"
+                api, f"array.vstavit_v_massiv(arr=arr({RET_STACK_NAME}), num=num({STACK_TOP_INDEX}), value=text())"
             )
             if not res:
                 raise ValueError("implicit return: не найдено действие 'Вставить в массив'")
-            current_actions.append(to_tuple(res))
+            append_action(to_tuple(res))
 
-        for block, name, args in current_actions:
-            entries.append({"block": block, "name": name, "args": (args or "no")})
+        # For long events, split into helper function call-chain:
+        # event: 42 actions + call(helper_1)
+        # helper_1: 42 actions + call(helper_2), etc.
+        # This keeps a leading block header for each row chunk.
+        if current_kind == "event" and len(current_actions) > MAX_ACTIONS_PER_ROW:
+            ev_name = (current_name or "").strip() or "event"
+            block_kind = "event"
+            block_name = current_name
+            block_ticks = current_loop_ticks
+            actions_left = list(current_actions)
+            if_depths_left = list(current_if_depths)
+            boundaries_left = list(current_safe_boundaries)
+            split_num = 0
+            while len(actions_left) > MAX_ACTIONS_PER_ROW:
+                split_num += 1
+                next_func_name = alloc_auto_func_name()
+                candidates: list[tuple[int, tuple[str, str, str] | None, int, tuple[str, str, str] | None]] = []
+                for pos, sel_state in boundaries_left:
+                    if pos <= 0 or pos >= len(actions_left):
+                        continue
+                    restore_sel = sel_state if (sel_state is not None and sel_state != DEFAULT_SELECT_PLAYER) else None
+                    extra = 1 + (1 if restore_sel is not None else 0)
+                    if pos + extra <= MAX_ACTIONS_PER_ROW:
+                        candidates.append((pos, sel_state, extra, restore_sel))
+                if not candidates:
+                    extracted = _try_extract_if_scope_to_helper(actions_left, build_call_action_tuple(next_func_name))
+                    if extracted is None:
+                        raise ValueError(
+                            f"row auto-split: `{ev_name}` has no safe top-level split point within {MAX_ACTIONS_PER_ROW} actions; "
+                            f"cannot split inside open scopes. Refactor by extracting inner block into a helper func/vfunc."
+                        )
+                    actions_left, helper_body = extracted
+                    pending_extracted_helpers.append((next_func_name, helper_body))
+                    if_depths_left = _calc_if_depths(actions_left)
+                    boundaries_left = _calc_safe_boundaries(actions_left)
+                    print(
+                        f"[warn] row auto-split: `{ev_name}` extracted nested scope -> call({next_func_name})",
+                        file=__import__("sys").stderr,
+                    )
+                    split_num -= 1
+                    continue
+                pos, sel_state, _extra, restore_sel = max(
+                    candidates, key=lambda t: (t[0], 1 if t[1] is None else 0)
+                )
+                chunk = actions_left[:pos]
+                chunk_if_depths = if_depths_left[:pos]
+                actions_left = actions_left[pos:]
+                if_depths_left = if_depths_left[pos:]
+                boundaries_left = [(p - pos, s) for p, s in boundaries_left if p > pos]
+                if restore_sel is not None:
+                    chunk.append(DEFAULT_SELECT_PLAYER)
+                    chunk_if_depths.append(0)
+                    actions_left = [restore_sel, *actions_left]
+                    if_depths_left = [0, *if_depths_left]
+                    boundaries_left = [(p + 1, s) for p, s in boundaries_left]
+                    boundaries_left.insert(0, (1, restore_sel))
+                    print(
+                        f"[warn] row auto-split: `{ev_name}` split at active selection; "
+                        f"forced default single-target before call and restored selection in `{next_func_name}`",
+                        file=__import__("sys").stderr,
+                    )
+                chunk.append(build_call_action_tuple(next_func_name))
+                chunk_if_depths.append(0)
+                print(
+                    f"[warn] row auto-split: `{ev_name}` part#{split_num} -> call({next_func_name})",
+                    file=__import__("sys").stderr,
+                )
+                emit_block_header(block_kind, block_name, block_ticks)
+                emit_action_rows(
+                    chunk,
+                    warn_context=f"{block_kind} `{block_name or ''}`",
+                    continuation_header=make_header(block_kind, block_name, block_ticks),
+                    action_if_depths=chunk_if_depths,
+                    reserve_implicit_if_closers=False,
+                )
+                entries.append({"block": "newline"})
+                block_kind = "func"
+                block_name = next_func_name
+                block_ticks = None
+            emit_block_header(block_kind, block_name, block_ticks)
+            emit_action_rows(
+                actions_left,
+                warn_context=f"{block_kind} `{block_name or ''}`",
+                continuation_header=make_header(block_kind, block_name, block_ticks),
+                action_if_depths=if_depths_left,
+                reserve_implicit_if_closers=False,
+            )
+        # For long functions, use the same call-chain splitting strategy as events.
+        # Avoid relying on repeated same-name function headers across newline rows.
+        elif current_kind == "func" and len(current_actions) > MAX_ACTIONS_PER_ROW:
+            func_name = (current_name or "").strip() or "func"
+            block_name = current_name
+            actions_left = list(current_actions)
+            if_depths_left = list(current_if_depths)
+            boundaries_left = list(current_safe_boundaries)
+            split_num = 0
+            while len(actions_left) > MAX_ACTIONS_PER_ROW:
+                split_num += 1
+                next_func_name = alloc_auto_func_name()
+                candidates: list[int] = []
+                for pos, _sel_state in boundaries_left:
+                    if pos <= 0 or pos >= len(actions_left):
+                        continue
+                    # +1 for call(next_func)
+                    if pos + 1 <= MAX_ACTIONS_PER_ROW:
+                        candidates.append(pos)
+                if not candidates:
+                    extracted = _try_extract_if_scope_to_helper(actions_left, build_call_action_tuple(next_func_name))
+                    if extracted is None:
+                        raise ValueError(
+                            f"row auto-split: `{func_name}` has no safe top-level split point within {MAX_ACTIONS_PER_ROW} actions; "
+                            f"cannot split inside open scopes. Refactor by extracting inner block into a helper func/vfunc."
+                        )
+                    actions_left, helper_body = extracted
+                    pending_extracted_helpers.append((next_func_name, helper_body))
+                    if_depths_left = _calc_if_depths(actions_left)
+                    boundaries_left = _calc_safe_boundaries(actions_left)
+                    print(
+                        f"[warn] row auto-split: `{func_name}` extracted nested scope -> call({next_func_name})",
+                        file=__import__("sys").stderr,
+                    )
+                    split_num -= 1
+                    continue
+                pos = max(candidates)
+                chunk = actions_left[:pos]
+                chunk_if_depths = if_depths_left[:pos]
+                actions_left = actions_left[pos:]
+                if_depths_left = if_depths_left[pos:]
+                boundaries_left = [(p - pos, s) for p, s in boundaries_left if p > pos]
+                chunk.append(build_call_action_tuple(next_func_name))
+                chunk_if_depths.append(0)
+                print(
+                    f"[warn] row auto-split: `{func_name}` part#{split_num} -> call({next_func_name})",
+                    file=__import__("sys").stderr,
+                )
+                emit_block_header("func", block_name, None)
+                emit_action_rows(
+                    chunk,
+                    warn_context=f"func `{block_name or ''}`",
+                    continuation_header=make_header("func", block_name, None),
+                    action_if_depths=chunk_if_depths,
+                    reserve_implicit_if_closers=False,
+                )
+                entries.append({"block": "newline"})
+                block_name = next_func_name
+            emit_block_header("func", block_name, None)
+            emit_action_rows(
+                actions_left,
+                warn_context=f"func `{block_name or ''}`",
+                continuation_header=make_header("func", block_name, None),
+                action_if_depths=if_depths_left,
+                reserve_implicit_if_closers=False,
+            )
+        else:
+            emit_block_header(current_kind, current_name, current_loop_ticks)
+            emit_action_rows(
+                current_actions,
+                warn_context=f"{current_kind} `{current_name or ''}`",
+                continuation_header=make_header(current_kind, current_name, current_loop_ticks),
+                action_if_depths=current_if_depths,
+                reserve_implicit_if_closers=False,
+            )
+
+        # Emit extracted helper functions created by scope-preserving autosplit.
+        for helper_name, helper_actions in pending_extracted_helpers:
+            if entries and entries[-1].get("block") != "newline":
+                entries.append({"block": "newline"})
+            if len(helper_actions) > MAX_ACTIONS_PER_ROW:
+                raise ValueError(
+                    f"row auto-split: extracted helper `{helper_name}` has {len(helper_actions)} actions (> {MAX_ACTIONS_PER_ROW}); "
+                    f"please refactor source block manually"
+                )
+            emit_block_header("func", helper_name, None)
+            emit_action_rows(
+                helper_actions,
+                warn_context=f"func `{helper_name}`",
+                continuation_header=make_header("func", helper_name, None),
+                action_if_depths=_calc_if_depths(helper_actions),
+                reserve_implicit_if_closers=False,
+            )
 
         current_kind = None
         current_name = None
@@ -2525,6 +2933,8 @@ def compile_entries(path: Path) -> list[dict]:
         current_actions = []
         current_func_params = []
         current_func_has_return = False
+        current_safe_boundaries = []
+        current_if_depths = []
 
     def begin_new_row():
         # split rows by inserting a newline marker between blocks
@@ -2545,29 +2955,35 @@ def compile_entries(path: Path) -> list[dict]:
             if ns:
                 line = re.sub(rf"\b{re.escape(ns)}\.", "", line)
 
+        line_negated, line = _extract_not_prefix(line)
+        if line_negated and not line:
+            raise ValueError("NOT: missing action after prefix")
+
         # Close nested blocks first (so } inside event/func doesn't flush the whole outer block).
         if line == "}" and block_stack:
             kind = block_stack.pop()
             if kind == "if":
                 # Exit the server-side piston bracket by advancing the code cursor without placing anything.
                 # (Using "air" as a pause causes some servers to desync/teleport the player.)
-                current_actions.append(("skip", "", "no"))
+                append_action(("skip", "", "no"))
             elif kind == "select":
                 prev = select_stack.pop() if select_stack else None
                 restore_default = select_default_stack.pop() if select_default_stack else DEFAULT_SELECT_PLAYER
                 current_select = prev
                 if prev is not None:
-                    current_actions.append(prev)
+                    append_action(prev)
                 else:
                     # Restore to default selection to avoid leaking selection outside the scope.
                     # Heuristic: if the last select was entity-like, restore entity default, else player default.
                     # (If we don't know, prefer player.)
-                    current_actions.append(restore_default)
+                    append_action(restore_default)
                     current_select = restore_default
             continue
 
         m_ifp = IFPLAYER_RE.match(line)
         if m_ifp:
+            if line_negated:
+                raise ValueError("NOT поддерживается только для action-вызовов, а не для if-блоков с `{}`")
             if not in_block:
                 raise ValueError("if_player must be inside event/func/loop block")
             block_stack.append("if")
@@ -2595,11 +3011,13 @@ def compile_entries(path: Path) -> list[dict]:
             StringName = sign2
             if expected_sign2:
                 StringName = f"{(menu or sign2)}||{expected_sign2}"
-            current_actions.append((block_tok, StringName, ",".join(pieces) if pieces else "no"))
+            append_if_open_action((block_tok, StringName, ",".join(pieces) if pieces else "no"))
             continue
 
         m_select_ifp = SELECTOBJECT_IFPLAYER_RE.match(line)
         if m_select_ifp:
+            if line_negated:
+                raise ValueError("NOT поддерживается только для action-вызовов, а не для if-блоков с `{}`")
             if not in_block:
                 raise ValueError("SelectObject.player.IfPlayer must be inside event/func/loop block")
             block_stack.append("if")
@@ -2628,11 +3046,13 @@ def compile_entries(path: Path) -> list[dict]:
             StringName = sign2
             if expected_sign2:
                 StringName = f"{(menu or sign2)}||{expected_sign2}"
-            current_actions.append((block_tok, StringName, ",".join(pieces) if pieces else "no"))
+            append_if_open_action((block_tok, StringName, ",".join(pieces) if pieces else "no"))
             continue
 
         m_ifgame = IFGAME_RE.match(line)
         if m_ifgame:
+            if line_negated:
+                raise ValueError("NOT поддерживается только для action-вызовов, а не для if-блоков с `{}`")
             if not in_block:
                 raise ValueError("if_game must be inside event/func/loop block")
             block_stack.append("if")
@@ -2660,11 +3080,13 @@ def compile_entries(path: Path) -> list[dict]:
             StringName = sign2
             if expected_sign2:
                 StringName = f"{(menu or sign2)}||{expected_sign2}"
-            current_actions.append((block_tok, StringName, ",".join(pieces) if pieces else "no"))
+            append_if_open_action((block_tok, StringName, ",".join(pieces) if pieces else "no"))
             continue
 
         m_ifgame_old = IFGAME_OLD_RE.match(line)
         if m_ifgame_old:
+            if line_negated:
+                raise ValueError("NOT поддерживается только для action-вызовов, а не для if-блоков с `{}`")
             if not in_block:
                 raise ValueError("IfGame must be inside event/func/loop block")
             block_stack.append("if")
@@ -2693,11 +3115,45 @@ def compile_entries(path: Path) -> list[dict]:
             StringName = sign2
             if expected_sign2:
                 StringName = f"{(menu or sign2)}||{expected_sign2}"
-            current_actions.append((block_tok, StringName, ",".join(pieces) if pieces else "no"))
+            append_if_open_action((block_tok, StringName, ",".join(pieces) if pieces else "no"))
+            continue
+
+        m_ifvalue = IFVALUE_RE.match(line)
+        if m_ifvalue:
+            if line_negated:
+                raise ValueError("NOT поддерживается только для action-вызовов, а не для if-блоков с `{}`")
+            if not in_block:
+                raise ValueError("if_value must be inside event/func/loop block")
+            block_stack.append("if")
+            func = (m_ifvalue.group(1) or "").strip()
+            arg_str = m_ifvalue.group(2) or ""
+            res = compile_line(api, f"if_value.{func}({arg_str})")
+            if not res:
+                raise ValueError(f"Unknown if_value condition: {func}")
+            pieces, spec = res
+            sign1 = strip_colors(spec.get("sign1", "")).strip()
+            sign2 = spec_menu_name(spec)
+            menu = strip_colors(spec.get("menu", "")).strip()
+            sign1_norm = norm_key(sign1)
+            if sign1_norm in sign1_aliases:
+                sign1_norm = norm_key(sign1_aliases[sign1_norm])
+            block = blocks.get(sign1_norm)
+            if not block:
+                raise ValueError(
+                    f"Unknown block for sign1='{sign1}' (norm='{sign1_norm}'). Add to allactions.txt or Aliases.json"
+                )
+            block_tok = block.replace("minecraft:", "")
+            expected_sign2 = strip_colors(spec.get("sign2", "")).strip() or strip_colors(spec.get("gui", "")).strip()
+            StringName = sign2
+            if expected_sign2:
+                StringName = f"{(menu or sign2)}||{expected_sign2}"
+            append_if_open_action((block_tok, StringName, ",".join(pieces) if pieces else "no"))
             continue
 
         m_ifexists = IFEXISTS_RE.match(line)
         if m_ifexists:
+            if line_negated:
+                raise ValueError("NOT поддерживается только для action-вызовов, а не для if-блоков с `{}`")
             if not in_block:
                 raise ValueError("ifexists must be inside event/func/loop block")
             block_stack.append("if")
@@ -2720,14 +3176,17 @@ def compile_entries(path: Path) -> list[dict]:
             StringName = sign2
             if expected_sign2:
                 StringName = f"{(menu or sign2)}||{expected_sign2}"
-            current_actions.append((block_tok, StringName, ",".join(pieces) if pieces else "no"))
+            append_if_open_action((block_tok, StringName, ",".join(pieces) if pieces else "no"))
             continue
 
         m_ift = IFTEXT_RE.match(line)
         if m_ift:
+            if line_negated:
+                raise ValueError("NOT поддерживается только для action-вызовов, а не для if-блоков с `{}`")
             if not in_block:
                 raise ValueError("iftext must be inside event/func/loop block")
             block_stack.append("if")
+            first_if_action = True
             for res in compile_iftext_condition(api, m_ift.group(1)):
                 pieces, spec = res
                 sign1 = strip_colors(spec.get("sign1", "")).strip()
@@ -2746,14 +3205,21 @@ def compile_entries(path: Path) -> list[dict]:
                 StringName = sign2
                 if expected_sign2:
                     StringName = f"{(menu or sign2)}||{expected_sign2}"
-                current_actions.append((block_tok, StringName, ",".join(pieces) if pieces else "no"))
+                if first_if_action:
+                    append_if_open_action((block_tok, StringName, ",".join(pieces) if pieces else "no"))
+                    first_if_action = False
+                else:
+                    append_action((block_tok, StringName, ",".join(pieces) if pieces else "no"))
             continue
 
         m_if = IF_RE.match(line)
         if m_if:
+            if line_negated:
+                raise ValueError("NOT поддерживается только для action-вызовов, а не для if-блоков с `{}`")
             if not in_block:
                 raise ValueError("if must be inside event/func/loop block")
             block_stack.append("if")
+            first_if_action = True
             for res in compile_if_condition(api, m_if.group(1)):
                 pieces, spec = res
                 sign1 = strip_colors(spec.get("sign1", "")).strip()
@@ -2772,11 +3238,17 @@ def compile_entries(path: Path) -> list[dict]:
                 StringName = sign2
                 if expected_sign2:
                     StringName = f"{(menu or sign2)}||{expected_sign2}"
-                current_actions.append((block_tok, StringName, ",".join(pieces) if pieces else "no"))
+                if first_if_action:
+                    append_if_open_action((block_tok, StringName, ",".join(pieces) if pieces else "no"))
+                    first_if_action = False
+                else:
+                    append_action((block_tok, StringName, ",".join(pieces) if pieces else "no"))
             continue
 
         m_ev = EVENT_RE.match(line)
         if m_ev:
+            if line_negated:
+                raise ValueError("NOT нельзя использовать перед event")
             flush_block()
             begin_new_row()
             current_kind = "event"
@@ -2785,6 +3257,8 @@ def compile_entries(path: Path) -> list[dict]:
             continue
         m_fn = FUNC_RE.match(line)
         if m_fn:
+            if line_negated:
+                raise ValueError("NOT нельзя использовать перед func")
             flush_block()
             begin_new_row()
             current_kind = "func"
@@ -2800,6 +3274,8 @@ def compile_entries(path: Path) -> list[dict]:
             continue
         m_lp = LOOP_RE.match(line)
         if m_lp:
+            if line_negated:
+                raise ValueError("NOT нельзя использовать перед loop")
             flush_block()
             begin_new_row()
             current_kind = "loop"
@@ -2823,13 +3299,20 @@ def compile_entries(path: Path) -> list[dict]:
             chain = (m_sel.group(1) or "").strip()
             arg_str = (m_sel.group(2) or "").strip()
             has_block = bool(m_sel.group(3))
+            if line_negated and has_block:
+                raise ValueError("NOT для select поддерживается только для action-вызова без `{}`")
 
             prev_select = current_select
             canon, _spec = find_select_action(chain)
             # Compile via canonical `select` module. `find_action` already keeps
             # backward-compat fallback to legacy `misc` catalogs when needed.
             sel_tuple, sel_spec = compile_action_tuple("select", canon, arg_str)
-            current_actions.append(sel_tuple)
+            if line_negated and not _spec_is_conditional("select", sel_spec):
+                raise ValueError(f"NOT недопустим для неусловного действия: select.{chain}")
+            if line_negated:
+                append_action((sel_tuple[0], sel_tuple[1], sel_tuple[2], True))
+            else:
+                append_action(sel_tuple)
             current_select = sel_tuple
 
             if has_block:
@@ -2871,7 +3354,7 @@ def compile_entries(path: Path) -> list[dict]:
                 StringName = sign2
                 if expected_sign2:
                     StringName = f"{(menu or sign2)}||{expected_sign2}"
-                current_actions.append((block_tok, StringName, args_str))
+                append_action((block_tok, StringName, args_str))
             # Now emit the message itself using the computed tmp var.
             res = compile_line(api, f'player.message("%var({tmp})%")')
             if not res:
@@ -2894,7 +3377,7 @@ def compile_entries(path: Path) -> list[dict]:
             StringName = sign2
             if expected_sign2:
                 StringName = f"{(menu or sign2)}||{expected_sign2}"
-            current_actions.append((block_tok, StringName, args_str))
+            append_action((block_tok, StringName, args_str))
             continue
 
         m_ret = re.match(r"^\s*return(?:\s*\(\s*(.*?)\s*\)\s*|\s+(.*))\s*$", line, re.I)
@@ -2916,7 +3399,7 @@ def compile_entries(path: Path) -> list[dict]:
                     expr = f"var({expr})"
             res = compile_line(
                 api,
-                f"array.vstavit_v_massiv(arr=arr({RET_STACK_NAME}), number=num({STACK_TOP_INDEX}), value={expr})",
+                f"array.vstavit_v_massiv(arr=arr({RET_STACK_NAME}), num=num({STACK_TOP_INDEX}), value={expr})",
             )
             if not res:
                 raise ValueError("return: не найдено действие 'Вставить в массив'")
@@ -2938,11 +3421,13 @@ def compile_entries(path: Path) -> list[dict]:
             StringName = sign2
             if expected_sign2:
                 StringName = f"{(menu or sign2)}||{expected_sign2}"
-            current_actions.append((block_tok, StringName, args_str))
+            append_action((block_tok, StringName, args_str))
             continue
 
         builtins = compile_builtin(api, line, func_sigs=func_sigs, debug_stacks=debug_stacks)
         if builtins:
+            if line_negated:
+                raise ValueError("NOT недопустим для builtin/sugar выражения")
             for pieces, spec in builtins:
                 args_str = ",".join(pieces)
                 sign1 = strip_colors(spec.get("sign1", "")).strip()
@@ -2961,7 +3446,7 @@ def compile_entries(path: Path) -> list[dict]:
                 StringName = sign2
                 if expected_sign2:
                     StringName = f"{(menu or sign2)}||{expected_sign2}"
-                current_actions.append((block_tok, StringName, args_str))
+                append_action((block_tok, StringName, args_str))
             continue
 
         res = compile_line(api, line)
@@ -2969,6 +3454,9 @@ def compile_entries(path: Path) -> list[dict]:
             continue
         pieces, spec = res
         args_str = ",".join(pieces)
+        module_hint = (line.split("(", 1)[0].split(".", 1)[0] if "(" in line else "").strip()
+        if line_negated and not _spec_is_conditional(module_hint, spec):
+            raise ValueError(f"NOT недопустим для неусловного действия: {line}")
 
         sign1 = strip_colors(spec.get("sign1", "")).strip()
         sign2 = spec_menu_name(spec)
@@ -2986,7 +3474,10 @@ def compile_entries(path: Path) -> list[dict]:
         StringName = sign2
         if expected_sign2:
             StringName = f"{(menu or sign2)}||{expected_sign2}"
-        current_actions.append((block_tok, StringName, args_str))
+        if line_negated:
+            append_action((block_tok, StringName, args_str, True))
+        else:
+            append_action((block_tok, StringName, args_str))
 
     flush_block()
     return entries
