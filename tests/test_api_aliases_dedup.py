@@ -1,14 +1,28 @@
 import json
+import importlib.util
 import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "tools"
-if str(TOOLS) not in sys.path:
-    sys.path.insert(0, str(TOOLS))
 
-from build_api_aliases import build_api_from_catalog
+
+def _load_build_api_from_catalog():
+    mod_path = TOOLS / "build_api_aliases.py"
+    had_tools = str(TOOLS) in sys.path
+    if not had_tools:
+        sys.path.insert(0, str(TOOLS))
+    spec = importlib.util.spec_from_file_location("tools_build_api_aliases_local", mod_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load module spec: {mod_path}")
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+        return mod.build_api_from_catalog
+    finally:
+        if not had_tools and str(TOOLS) in sys.path:
+            sys.path.remove(str(TOOLS))
 
 
 def _load_fixture():
@@ -22,6 +36,7 @@ def _params_for(api, module, key):
 
 
 def test_var_exists_dedup_for_if_value_and_select_domains():
+    build_api_from_catalog = _load_build_api_from_catalog()
     api = build_api_from_catalog(_load_fixture(), {})
 
     params_if_value, spec_if_value = _params_for(api, "if_value", "peremennaya_suschestvuet")
@@ -42,6 +57,7 @@ def test_var_exists_dedup_for_if_value_and_select_domains():
 
 
 def test_negative_control_distinct_variable_labels_are_kept():
+    build_api_from_catalog = _load_build_api_from_catalog()
     api = build_api_from_catalog(_load_fixture(), {})
     spec = None
     for cand in api.get("if_value", {}).values():

@@ -29,6 +29,33 @@ function autoDetectApiAliasesPath(rawCfg) {
 
   const candidates = [];
 
+  // If compilerPath is configured, treat it as the primary source of truth for dev/prod root.
+  // This avoids accidental fallback to %LOCALAPPDATA%\MLDSL when editing scripts outside repo root.
+  const compilerPath = String(rawCfg.compilerPath || "").trim();
+  if (compilerPath) {
+    const cpNorm = compilerPath.replace(/\//g, "\\").toLowerCase();
+    let rootFromCompiler = "";
+    if (cpNorm.endsWith("\\mldsl_cli.py") || cpNorm.endsWith("\\mldsl_compile.py")) {
+      const p = path.resolve(compilerPath);
+      const base = path.basename(p).toLowerCase();
+      // repo root /mldsl_cli.py
+      if (base === "mldsl_cli.py") rootFromCompiler = path.dirname(p);
+      // legacy repo/tools/mldsl_compile.py wrapper
+      else if (base === "mldsl_compile.py" && path.basename(path.dirname(p)).toLowerCase() === "tools") {
+        rootFromCompiler = path.dirname(path.dirname(p));
+      } else {
+        rootFromCompiler = path.dirname(p);
+      }
+    } else if (cpNorm.endsWith(".exe")) {
+      // Installed CLI path can also be used as a root hint.
+      rootFromCompiler = path.dirname(path.resolve(compilerPath));
+    }
+    if (rootFromCompiler) {
+      candidates.push(path.join(rootFromCompiler, "out", "api_aliases.json"));
+      candidates.push(path.join(rootFromCompiler, "tools", "out", "api_aliases.json"));
+    }
+  }
+
   const ws = firstWorkspaceRoot();
   if (ws) {
     candidates.push(path.join(ws, "out", "api_aliases.json"));
@@ -612,6 +639,171 @@ function activate(context) {
   let gamevalues = { byLocName: {}, byKey: {} };
   let statusItem = null;
   let didWarnMissingApi = false;
+  const mcColorState = {
+    styles: new Map(),
+    codeTokenStyle: null,
+  };
+
+  const MC_COLORS = {
+    "0": "#000000",
+    "1": "#0000AA",
+    "2": "#00AA00",
+    "3": "#00AAAA",
+    "4": "#AA0000",
+    "5": "#AA00AA",
+    "6": "#FFAA00",
+    "7": "#AAAAAA",
+    "8": "#555555",
+    "9": "#5555FF",
+    a: "#55FF55",
+    b: "#55FFFF",
+    c: "#FF5555",
+    d: "#FF55FF",
+    e: "#FFFF55",
+    f: "#FFFFFF",
+  };
+
+  function defaultMcStyle() {
+    return { color: null, bold: false, underline: false, italic: false, strike: false };
+  }
+
+  function mcStyleKey(s) {
+    return [s.color || "none", s.bold ? 1 : 0, s.underline ? 1 : 0, s.italic ? 1 : 0, s.strike ? 1 : 0].join("|");
+  }
+
+  function createMcDecorationForStyle(s) {
+    const textDecoration = [];
+    if (s.underline) textDecoration.push("underline");
+    if (s.strike) textDecoration.push("line-through");
+    return vscode.window.createTextEditorDecorationType({
+      color: s.color || undefined,
+      fontWeight: s.bold ? "bold" : "normal",
+      fontStyle: s.italic ? "italic" : "normal",
+      textDecoration: textDecoration.length ? textDecoration.join(" ") : undefined,
+      rangeBehavior: vscode.DecorationRangeBehavior.OpenOpen,
+    });
+  }
+
+  function findQuotedSegments(text) {
+    const segs = [];
+    let quote = null;
+    let start = -1;
+    let esc = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (esc) {
+        esc = false;
+        continue;
+      }
+      if (ch === "\\") {
+        esc = true;
+        continue;
+      }
+      if (!quote) {
+        if (ch === '"' || ch === "'") {
+          quote = ch;
+          start = i + 1; // exclude opening quote
+        }
+        continue;
+      }
+      if (ch === quote) {
+        if (start >= 0 && i >= start) segs.push([start, i]); // exclude closing quote
+        quote = null;
+        start = -1;
+      }
+    }
+    return segs;
+  }
+
+  function isMcColorTargetEditor(editor) {
+    return !!(editor && editor.document && editor.document.languageId === "mldsl");
+  }
+
+  function applyMcColorDecorations(editor) {
+    if (!isMcColorTargetEditor(editor) || !mcColorState.codeTokenStyle) return;
+    const buckets = new Map();
+    const codeRanges = [];
+    const doc = editor.document;
+
+    for (let lineNo = 0; lineNo < doc.lineCount; lineNo++) {
+      const text = doc.lineAt(lineNo).text;
+      const segments = findQuotedSegments(text);
+      for (const [segStart, segEnd] of segments) {
+        const segText = text.slice(segStart, segEnd);
+        const re = /&([0-9a-frlomnk])/gi;
+        let match;
+        let lastIndex = 0;
+        let style = defaultMcStyle();
+
+        while ((match = re.exec(segText)) !== null) {
+          const codePos = segStart + match.index;
+          const absLast = segStart + lastIndex;
+          if (codePos > absLast && style.color) {
+            const key = mcStyleKey(style);
+            if (!buckets.has(key)) buckets.set(key, []);
+            buckets.get(key).push(new vscode.Range(lineNo, absLast, lineNo, codePos));
+          }
+
+          codeRanges.push(new vscode.Range(lineNo, codePos, lineNo, codePos + 2));
+
+          const code = match[1].toLowerCase();
+          if (MC_COLORS[code]) {
+            style = defaultMcStyle();
+            style.color = MC_COLORS[code];
+          } else if (code === "l") {
+            style.bold = true;
+          } else if (code === "n") {
+            style.underline = true;
+          } else if (code === "o") {
+            style.italic = true;
+          } else if (code === "m") {
+            style.strike = true;
+          } else if (code === "r") {
+            style = defaultMcStyle();
+          } else if (code === "k") {
+            const kStyle = { ...style, underline: true };
+            const key = mcStyleKey(kStyle);
+            if (!buckets.has(key)) buckets.set(key, []);
+          }
+
+          lastIndex = match.index + 2;
+        }
+
+        const absLast = segStart + lastIndex;
+        if (absLast < segEnd && style.color) {
+          const key = mcStyleKey(style);
+          if (!buckets.has(key)) buckets.set(key, []);
+          buckets.get(key).push(new vscode.Range(lineNo, absLast, lineNo, segEnd));
+        }
+      }
+    }
+
+    for (const [key, ranges] of buckets.entries()) {
+      if (!mcColorState.styles.has(key)) {
+        const [color, bold, underline, italic, strike] = key.split("|");
+        const style = {
+          color: color === "none" ? null : color,
+          bold: bold === "1",
+          underline: underline === "1",
+          italic: italic === "1",
+          strike: strike === "1",
+        };
+        mcColorState.styles.set(key, createMcDecorationForStyle(style));
+      }
+      editor.setDecorations(mcColorState.styles.get(key), ranges);
+    }
+
+    editor.setDecorations(mcColorState.codeTokenStyle, codeRanges);
+    for (const [key, type] of mcColorState.styles.entries()) {
+      if (!buckets.has(key)) editor.setDecorations(type, []);
+    }
+  }
+
+  function refreshAllMcColorDecorations() {
+    for (const editor of vscode.window.visibleTextEditors) {
+      applyMcColorDecorations(editor);
+    }
+  }
 
   function reloadApi(reason) {
     const { apiAliasesPath, docsRoot } = getConfig();
@@ -655,6 +847,12 @@ function activate(context) {
 
   reloadApi("activate");
   output.show(true);
+  mcColorState.codeTokenStyle = vscode.window.createTextEditorDecorationType({
+    color: "#777777",
+    fontStyle: "italic",
+  });
+  context.subscriptions.push(mcColorState.codeTokenStyle);
+  context.subscriptions.push(vscode.commands.registerCommand("mldsl.refreshMcColors", refreshAllMcColorDecorations));
 
   context.subscriptions.push(vscode.commands.registerCommand("mldsl.reloadApi", () => reloadApi("command")));
 
@@ -705,6 +903,14 @@ function activate(context) {
   }
 
   function findCompiler() {
+    // Explicit user config must win over any auto-detected installed compiler.
+    const { compilerPath } = getConfig();
+    if (compilerPath && fs.existsSync(compilerPath)) {
+      const cp = String(compilerPath);
+      if (cp.toLowerCase().endsWith(".py")) return { kind: "py", py: cp };
+      return { kind: "cli", cli: cp };
+    }
+
     const cli = findCliPath();
     if (cli) return { kind: "cli", cli };
     const py = findCompilerPathLegacyPy();
@@ -748,13 +954,13 @@ function activate(context) {
     if (compiler.kind === "cli") {
       output.appendLine(`[compile#${id}] ${compiler.cli} compile ${filePath}`);
     } else {
-      output.appendLine(`[compile#${id}] ${pythonPath} ${compiler.py} ${filePath}`);
+      output.appendLine(`[compile#${id}] ${pythonPath} ${compiler.py} compile ${filePath}`);
     }
 
     const env = Object.assign({}, process.env, { PYTHONIOENCODING: "utf-8" });
 
     const execFile = compiler.kind === "cli" ? compiler.cli : pythonPath || "python";
-    const args = compiler.kind === "cli" ? ["compile", filePath] : [compiler.py, filePath];
+    const args = compiler.kind === "cli" ? ["compile", filePath] : [compiler.py, "compile", filePath];
 
     cp.execFile(execFile, args, { env }, async (err, stdout, stderr) => {
       if (stderr && String(stderr).trim()) {
@@ -806,13 +1012,16 @@ function activate(context) {
     if (compiler.kind === "cli") {
       output.appendLine(`[plan#${id}] ${compiler.cli} compile ${filePath} --plan ${outPlan}`);
     } else {
-      output.appendLine(`[plan#${id}] ${pythonPath} ${compiler.py} --plan ${outPlan} ${filePath}`);
+      output.appendLine(`[plan#${id}] ${pythonPath} ${compiler.py} compile ${filePath} --plan ${outPlan}`);
     }
 
     const env = Object.assign({}, process.env, { PYTHONIOENCODING: "utf-8" });
 
     const execFile = compiler.kind === "cli" ? compiler.cli : pythonPath || "python";
-    const args = compiler.kind === "cli" ? ["compile", filePath, "--plan", outPlan] : [compiler.py, "--plan", outPlan, filePath];
+    const args =
+      compiler.kind === "cli"
+        ? ["compile", filePath, "--plan", outPlan]
+        : [compiler.py, "compile", filePath, "--plan", outPlan];
 
     cp.execFile(execFile, args, { env }, async (err, stdout, stderr) => {
       if (stderr && String(stderr).trim()) {
@@ -929,7 +1138,7 @@ function activate(context) {
     const args =
       compiler.kind === "cli"
         ? ["compile", entryFile, "--plan", planPath]
-        : [compiler.py, "--plan", planPath, entryFile];
+        : [compiler.py, "compile", entryFile, "--plan", planPath];
 
     output.appendLine(`[publish#${id}] ${execFile} ${args.join(" ")}`);
 
@@ -1490,7 +1699,19 @@ function activate(context) {
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((e) => updateDiagnostics(e.document))
   );
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      for (const editor of vscode.window.visibleTextEditors) {
+        if (editor.document.uri.toString() === e.document.uri.toString()) {
+          applyMcColorDecorations(editor);
+        }
+      }
+    })
+  );
   context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor((ed) => ed && updateDiagnostics(ed.document)));
+  context.subscriptions.push(vscode.window.onDidChangeVisibleTextEditors(() => refreshAllMcColorDecorations()));
+  context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(() => refreshAllMcColorDecorations()));
+  refreshAllMcColorDecorations();
 
   function updateStatusBar() {
     const ed = vscode.window.activeTextEditor;

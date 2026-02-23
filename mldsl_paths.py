@@ -23,13 +23,26 @@ def _portable_enabled() -> bool:
     return (_executable_dir() / "portable.flag").exists()
 
 
+def _is_frozen_app() -> bool:
+    return bool(getattr(sys, "frozen", False) or getattr(sys, "_MEIPASS", None))
+
+
+def _is_dev_checkout() -> bool:
+    # Source checkout heuristic: run from repo with source/assets present.
+    if _is_frozen_app():
+        return False
+    root = repo_root()
+    return (root / "mldsl_compile.py").exists() and (root / "src" / "assets" / "Aliases.json").exists()
+
+
 def data_root() -> Path:
     """
     Directory for ALL mutable MLDSL data:
     - generated out/ (api_aliases.json, docs, etc.)
     - caches, logs, etc.
 
-    Default: %LOCALAPPDATA%\\MLDSL
+    Default (prod): %LOCALAPPDATA%\\MLDSL
+    Default (dev checkout): <repo_root>
     Override: MLDSL_DATA_DIR
     Portable: MLDSL_PORTABLE=1 or portable.flag near exe -> <exe_dir>\\MLDSL
     """
@@ -39,6 +52,9 @@ def data_root() -> Path:
 
     if _portable_enabled():
         return (_executable_dir() / "MLDSL").resolve()
+
+    if _is_dev_checkout():
+        return repo_root()
 
     local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
     if local_app_data:

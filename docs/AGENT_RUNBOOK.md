@@ -30,6 +30,11 @@ python .\mldsl_cli.py build-all
 - Encoding contract: UTF-8 for all generated files.
 - Breaking plan schema changes require explicit coordination update in cross-project index.
 
+## Working principle
+- Runtime printer/scanner should stay dumb/minimal and portable across Fabric/Forge versions.
+- Compiler should own smart behavior: parsing, normalization, validation, and fail-fast diagnostics.
+- When choosing where to fix a bug, bias toward compiler-side fixes unless runtime execution correctness requires mod changes.
+
 ## External dependencies
 - External dependency: mod repo `k:\mymod` / `docs/AGENT_RUNBOOK.md`
 - External dependency: site repo `C:\Users\ASUS\Documents\mldsl-hub` / `docs/AGENT_RUNBOOK.md`

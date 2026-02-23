@@ -7,6 +7,80 @@
 ## Verified features
 - exportcode -> mldsl conversion path
 - mldsl -> plan compile path
+- compile-time required donate tier summary:
+  - `mldsl compile` now computes minimum required tier from `donaterequire.txt` using alias->action-id mapping (`api_aliases.json` + `actions_catalog.json`),
+  - emits stderr warning after compile: `[warn] required donate tier: <tier> (matched actions: N)`,
+  - warning now also shows up to 5 matched action names from source (`detected: module.action, ...`),
+  - if multiple tiers are matched, highest tier wins (e.g. `gamer + king` => `king`), no matches => `player`.
+- vector/item runtime compatibility normalization:
+  - compiler now rewrites `item(type=..., ...)` to positional form `item(..., ...)` for `VECTOR/ITEM/BLOCK` arguments,
+  - avoids runtime printer cases where `type=` payload in vector slots was ignored and item was not placed into action slot.
+- numeric unary-minus lowering fix:
+  - constant negative literals in numeric expressions (e.g. `-1.483046211`) now compile directly to `num(-...)` via `var.set_value`,
+  - compiler no longer emits redundant `set_product(..., num(-1))` for pure numeric unary-minus constants.
+- numeric constant-folding in expression lowering:
+  - pure numeric subexpressions are now folded before emission (e.g. `-(1+2)` -> `num(-3)`, `-(-3.5)` -> `num(3.5)`),
+  - avoids temporary vars and intermediate arithmetic actions when result is compile-time constant.
+- inline block normalization for parser robustness:
+  - compiler now expands one-line scoped blocks (`if ... { a = 1 b += 2 }`) into multiline-equivalent statements before parse,
+  - compact inline bodies are split reliably (semicolon-aware + assignment/call boundary fallback),
+  - semantics now match explicit multiline blocks for conditional scopes.
+- LOCATION runtime compatibility normalization:
+  - compiler now rewrites `LOCATION` payloads into runtime-safe paper items:
+    - `loc("x y z yaw pitch")` -> `item(minecraft:paper, name="x y z yaw pitch")`,
+    - bare location literals in `LOCATION` params are normalized the same way,
+  - explicit `item(type=..., ...)` in `LOCATION` now also normalizes to positional `item(..., ...)`.
+- dynamic placeholder assignment target support:
+  - assignment sugar now supports placeholder-based variable names in LHS, e.g.
+    `__mn_row_%var(__mn_z)% += __mn_pix`,
+  - such assignments are no longer silently dropped and compile into `var.set_*` actions.
+- VSCode helper compiler selection priority fix:
+  - when `mldsl.compilerPath` is explicitly set, extension now always uses that path first (py or exe),
+  - prevents accidental fallback to installed `mldsl.exe` that previously overrode dev `mldsl_cli.py`.
+- VSCode helper Python CLI invocation fix:
+  - for `mldsl_cli.py`, extension now calls subcommand form `compile <file> [--plan ...]` (not legacy positional form),
+  - fixes runtime error `invalid choice: '<plan-path>'` in `Compile To plan`.
+- CLI legacy invocation compatibility:
+  - `mldsl_cli.py` now accepts old extension arg order and rewrites it into modern subcommand mode,
+  - supported legacy forms include `mldsl_cli.py --plan <plan> <input.mldsl>` and `mldsl_cli.py <input.mldsl>`,
+  - prevents hard failures when editor still invokes pre-subcommand format.
+- VSCode helper publish flow Python invocation fix:
+  - `MLDSL: Publish Module` now also calls Python compiler in subcommand form
+    `python mldsl_cli.py compile <file> --plan <plan.json>`,
+  - removes legacy arg order bug that called CLI without `compile` and failed with argparse invalid choice.
+- unresolved-line diagnostics hardening:
+  - compiler now emits explicit unresolved-line warnings (`[warn] line N: нераспознанная строка ...`) when source lines are not parsed into actions,
+  - strict mode is available via env `MLDSL_STRICT_UNKNOWN=1` and CLI flag `mldsl compile --strict-unknown` (fail-fast `ValueError`),
+  - unknown call-like sugar is now gated by known function signatures to prevent silent acceptance of garbage calls.
+- assignment parser hardening for `=` inside call text:
+  - fixed false assignment detection when `=` appears inside quoted call arguments (e.g. `player.message("sum=...")`),
+  - dynamic assignment fallback no longer triggers unless `=` is top-level,
+  - prevents lines like `player.message("...pred=%var(x)%")` from being miscompiled into `var.set_value`.
+- builtin interception guard for canonical calls:
+  - `compile_builtin` now explicitly skips lines matching canonical `module.func(...)`,
+  - prevents sugar parser from pre-empting normal action-call parsing and creating false assignment actions.
+- assignment `loc(...)` runtime normalization:
+  - in assignment sugar (`x = ...`), RHS `loc("...")` now normalizes to
+    `item(minecraft:paper, name="...")` before `var.set_value`,
+  - aligns assignment path with LOCATION-arg path and avoids runtime printing of literal `loc(...)` text.
+- vector keyword alias support:
+  - compiler now accepts `vector`, `vector2`, ... (also `vec`, `vektor`, `вектор`) for `VECTOR` params,
+  - aliases are mapped to action param names from `api_aliases` (including legacy `arg/arg2` catalogs),
+  - keeps backward compatibility with existing `arg/arg2` scripts while allowing clearer vector-style calls.
+- VARIABLE item-wrapper compatibility:
+  - compiler now accepts `item(...)` in `VARIABLE`-typed params with explicit stderr warning,
+  - payload is passed through (with `item(type=...)` normalization) instead of hard-failing,
+  - removes compile aborts for runtime patterns that intentionally place item payload into variable slots.
+- strict named-key validation for action calls:
+  - compiler now fails fast on unknown named keys (param/enum typos) instead of silently ignoring them,
+  - error includes known params and enum names for the target action.
+- ampersand formatting normalization:
+  - unescaped `&` is normalized to `§` in text/item/location payloads where applicable,
+  - escaped `\\&` is preserved as literal `&`.
+- VSCode helper integrated MC `&` color preview:
+  - main extension (`tools/mldsl-vscode/extension.js`) now includes in-editor `&` formatting preview for `mldsl`,
+  - preview is scoped to quoted string segments and auto-stops at closing quote (no color bleed into tail text),
+  - refresh triggers on visible editors, active editor switch, and document changes.
 - build-all pipeline with generated docs/aliases
 - exportcode action resolver safety fix:
   - `sign1`-only fallback is now used only when no `sign1+sign2/gui/menu` candidates were found,
@@ -151,6 +225,64 @@
     no longer degrades into unrelated assignment actions,
   - named args with empty value (e.g. `var=`) are now omitted from emitted args,
     so `plan.json` does not receive broken empty slots.
+- fill-region arg coercion fix:
+  - compiler no longer force-wraps `Заполнить область` value into `item(...)` for ANY slot,
+  - emitted plan keeps `slot(13)=var(...)`/raw mode-driven payloads and avoids `invalid item()` runtime side-effects.
+- NUMBER placeholder guardrails:
+  - `%selected%var`-style values in NUMBER slots are now recognized as variable tokens (`var(...)`),
+  - placeholder arithmetic strings with `%...%` (e.g. `%selected%idx+1`) now fail fast with explicit guidance instead of unsafe `num(...)` wrapping.
+- ANY slot variable auto-detection:
+  - `%selected%var` and bare identifier tokens in `ANY` params are now auto-wrapped as `var(...)`,
+  - keeps explicit wrappers as highest priority and reduces accidental raw-token emission.
+- call-arg formula lowering:
+  - numeric expressions inside call args for `NUMBER/TEXT/ANY` are now lowered into intermediate var actions
+    before the target action call (e.g. `text2=%player%money + 5` -> `set_sum(...)` + `text2=var(tmp)`),
+  - supports both spaced and compact forms (`a + 5` and `a+5`).
+- item/block variable safety:
+  - `ITEM/BLOCK` params no longer auto-coerce variable-like tokens into `item(var(...))`,
+  - variable-like values are passed as `var(...)`, while concrete ids still become `item(...)`.
+- assignment wrapper semantics fix:
+  - assignment RHS wrapper calls (`item(...)`, `loc(...)`, `text(...)`, `num(...)`, etc.) are now treated as plain values,
+  - they no longer trigger function-return sugar via `__mldsl_args/__mldsl_ret`.
+- engineering workflow policy recorded:
+  - compiler is the preferred place for smart logic and validation,
+  - runtime printer/scanner should remain simple and cross-version portable.
+- repeated-lane argument order hardening:
+  - lane args are now emitted in strict row-major order after full all-column validation,
+  - registration order is now stable by slot progression (`row1 cols -> row2 cols -> row3 cols`) to match server slot-order semantics.
+- loop-control text quoting fix:
+  - `game.start_loops(...)` / `game.stop_loops(...)` now normalize quoted TEXT literals to plain `text(...)` payloads without embedded quote chars,
+  - prevents cycle-name items like `'mldsl_mnist_loop'` caused by preserved literal quotes.
+- return flow-control note:
+  - in current runtime semantics, `return` does not hard-stop remaining emitted actions in a function row by itself,
+  - robust scripts must guard remaining body explicitly (e.g. `if_value(done < 1) { ... }`) instead of relying on early-return short-circuit.
+- autosplit trampoline post-pass:
+  - compiler now applies a final entries-level compaction pass that removes auto-generated helper funcs with body `call(__autosplit_row_*)` only,
+  - call sites are rewritten to the final target helper, then redundant helper definitions are removed and newlines normalized.
+- autosplit payload-budget correction:
+  - autosplit split-point selection and loop thresholds now consistently use payload budget (`MAX_ACTIONS_PER_ROW - 1`) to account for row header slot,
+  - prevents accidental `func` continuation rows that contained only `call(__autosplit_row_N)` because a 43-action payload spilled at emit stage.
+- extracted-helper autosplit stabilization:
+  - extracted nested helpers are no longer hard-failed when body exceeds payload budget,
+  - compiler now applies the same call-chain autosplit strategy to extracted helpers (including nested extraction when needed).
+- global TEXT literal quote normalization:
+  - quoted TEXT literals are now emitted as `text(payload)` without embedded quote chars for all actions (not only loop-control),
+  - quoted identifiers keep literal semantics (`"abc"` -> `text(abc)`, not `var(abc)`).
+- autosplit temporary debug instrumentation:
+  - compiler now supports opt-in verbose autosplit diagnostics via env `MLDSL_AUTOSPLIT_DEBUG=1`,
+  - debug stream reports split-loop iterations, candidate counts, extracted helper sizes, and allocated `__autosplit_row_*` names.
+- compile deep debug instrumentation (temporary):
+  - compiler now supports stage/line-level tracing via env `MLDSL_COMPILE_DEEP_DEBUG=1`,
+  - includes pipeline stage counters, per-line parse progress, flush-block start/end stats, and post-pass entry counts.
+  - autosplit runaway guard added (`MLDSL_AUTOSPLIT_MAX_ITERS`, default `50000`) to fail fast on infinite split loops.
+- autosplit no-progress loop fix:
+  - fixed pathological extraction loop where nested-scope extraction could pick a 1-action body and rewrite without reducing action count,
+  - extraction now requires at least 2 body actions and verifies strict progress (`len(actions_left)` must decrease),
+  - compiler now fails fast with explicit `extraction made no progress` instead of spending 30s+ in helper-name churn.
+- new parser mode `VECTOR`:
+  - extractor now recognizes vector glass markers by either color `meta=9` or display name starting with `вектор`/`vector` (case-insensitive),
+  - mode propagates into `actions_catalog` and `api_aliases` params as `VECTOR`,
+  - vector-heavy actions (`скалярное/векторное/адамарово произведение`, `сумма/разница векторов`, etc.) now expose vector slots explicitly instead of fallback modes.
 - VSCode helper select-domain completion fix:
   - extension `select` module alias now targets canonical `select` (not legacy `misc`),
   - `select.ifplayer.*`, `select.ifmob.*`, `select.ifentity.*` completion now resolves from `api_aliases.select`,
@@ -161,6 +293,11 @@
 - VSCode helper select completion detail simplification:
   - `select.*` completion detail no longer renders parameter lists on the right side,
   - right-side detail now shows only compact action context (`select` + menu label when available).
+- VSCode helper api path root-selection fix:
+  - when `mldsl.apiAliasesPath` is empty but `mldsl.compilerPath` is configured, helper now resolves
+    `out/api_aliases.json` from compiler root first (repo dev root / legacy `tools/mldsl_compile.py` wrapper / CLI exe dir),
+  - `%LOCALAPPDATA%\\MLDSL\\out\\api_aliases.json` is now a lower-priority fallback, preventing false production API pickup
+    while editing scripts outside the compiler repo workspace.
 - VSCode helper completion detail canonicalization:
   - right-side completion detail for action suggestions now shows only canonical function id (`funcName`),
   - removes duplicated module/signature/alias noise in completion list (e.g. `player.<...>` details).

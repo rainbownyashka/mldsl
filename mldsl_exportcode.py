@@ -74,6 +74,37 @@ def _pick_preferred_alias(entry: Dict[str, Any]) -> Optional[str]:
     if not clean:
         return None
 
+    def norm_alias(x: str) -> str:
+        return _norm_key(x).replace(" ", "").replace("_", "")
+
+    generic_aliases = {
+        "действия",
+        "действие",
+        "деиствия",
+        "deystviya",
+        "deystvie",
+        "actions",
+        "action",
+        "module",
+        "modul",
+        "модуль",
+        "переменная",
+        "peremennaya",
+        "сущностьпоусловию",
+        "suschnostpousloviyu",
+        "игрокпоусловию",
+        "igrokpousloviyu",
+        "мобпоусловию",
+        "mobpousloviyu",
+    }
+    unnamed_re = re.compile(r"^unnamed_\d+$", re.I)
+    filtered = [
+        a for a in clean
+        if norm_alias(a) not in generic_aliases and not unnamed_re.match(a.strip())
+    ]
+    if filtered:
+        clean = filtered
+
     ident_re = re.compile(r"^[A-Za-z_\u0400-\u04FF][A-Za-z0-9_\u0400-\u04FF]*$")
     ident = [a for a in clean if ident_re.match(a)]
 
@@ -676,7 +707,7 @@ def _render_call_from_block(
         # - select.ifentity.<selector>(...)
         # based on sign2 domain.
         s1_meta = _norm_key(str(meta.get("sign1") or ""))
-        if module == "misc" and s1_meta in {"выбрать обьект", "выбрать объект"}:
+        if module in {"misc", "select"} and s1_meta in {"выбрать обьект", "выбрать объект"}:
             s2_meta = _norm_key(str(meta.get("sign2") or ""))
             scope = ""
             if "игрок по условию" in s2_meta:
@@ -710,7 +741,7 @@ def _render_call_from_block(
         )
 
     if not params and not enums:
-        return f"{module}.{alias}()", warns
+        return _render_call(), warns
 
     params_by_slot: Dict[int, Dict[str, Any]] = {}
     for p in params:

@@ -275,6 +275,8 @@ def guess_param_base(arg: dict) -> str:
         return "arr"
     if mode == "item":
         return "item"
+    if mode == "block":
+        return "block"
     if mode == "any":
         return "value"
     return mode or "arg"
@@ -297,7 +299,7 @@ def extract_param_label(arg: dict) -> str:
         left, right = raw.split(" - ", 1)
         # Only treat known type-prefixes as structural markers.
         left_norm = left.strip().lower()
-        if left_norm in {"число", "текст", "предмет", "массив", "местоположение", "местоположение(я)", "переменная"}:
+        if left_norm in {"число", "текст", "предмет", "блок", "массив", "местоположение", "местоположение(я)", "переменная"}:
             label = right.strip()
             return label or raw
     return raw
@@ -414,6 +416,8 @@ def canonical_base_for_mode(mode: str) -> str:
         return "arr"
     if m == "ITEM":
         return "item"
+    if m == "BLOCK":
+        return "block"
     if m == "ANY":
         return "value"
     return "arg"

@@ -283,6 +283,125 @@ class ExportcodeContractTests(unittest.TestCase):
         self.assertIn('select.ifmob.имя_равно(text="Z")', out)
         self.assertIn('select.ifentity.имя_равно(text="E")', out)
 
+    def test_select_translation_avoids_generic_deystviya_alias(self):
+        api = {
+            "select": {
+                "unnamed_6": {
+                    "sign1": "Выбрать обьект",
+                    "sign2": "Все сущности",
+                    "menu": "Выбрать всех сущностей",
+                    "aliases": ["deystviya", "unnamed_6", "vse_suschnosti", "все_сущности", "действия"],
+                    "params": [],
+                    "enums": [],
+                }
+            }
+        }
+        export_obj = {
+            "version": 2,
+            "rows": [
+                {
+                    "row": 0,
+                    "glass": {"x": 10, "y": 0, "z": 0},
+                    "blocks": [
+                        {"block": "minecraft:diamond_block", "pos": {"x": 10, "y": 1, "z": 0}, "sign": ["Событие игрока", "Вход", "", ""]},
+                        {"block": "minecraft:purpur_block", "pos": {"x": 8, "y": 1, "z": 0}, "sign": ["Выбрать обьект", "Все сущности", "", ""], "hasChest": False},
+                    ],
+                }
+            ],
+        }
+        out = exportcode_to_mldsl(export_obj, api)
+        self.assertIn("select.все_сущности()", out)
+        self.assertNotIn("select.действия()", out)
+        self.assertNotIn("select.deystviya()", out)
+
+    def test_select_ifentity_avoids_category_aliases(self):
+        api = {
+            "select": {
+                "ifentity_znachenie_ravno": {
+                    "sign1": "Выбрать обьект",
+                    "sign2": "Сущность по условию",
+                    "aliases": [
+                        "ifentity_znachenie_ravno",
+                        "peremennaya",
+                        "suschnost_po_usloviyu",
+                        "znachenie_ravno",
+                        "значение_равно",
+                        "переменная",
+                        "сущность_по_условию",
+                    ],
+                    "params": [{"name": "num", "slot": 0, "mode": "NUMBER"}],
+                    "enums": [{"name": "tip_proverki", "slot": 13, "options": {"> (Больше)": "Больше"}}],
+                }
+            }
+        }
+        export_obj = {
+            "version": 2,
+            "rows": [
+                {
+                    "row": 0,
+                    "glass": {"x": 10, "y": 0, "z": 0},
+                    "blocks": [
+                        {"block": "minecraft:diamond_block", "pos": {"x": 10, "y": 1, "z": 0}, "sign": ["Событие игрока", "Вход", "", ""]},
+                        {
+                            "block": "minecraft:planks",
+                            "pos": {"x": 8, "y": 1, "z": 0},
+                            "sign": ["Выбрать обьект", "Сущность по условию", "", ""],
+                            "hasChest": True,
+                            "chestItems": [
+                                {"slot": 0, "id": "minecraft:apple", "displayName": "5"},
+                                {"slot": 13, "id": "minecraft:anvil", "displayName": "> (Больше)"},
+                            ],
+                        },
+                    ],
+                }
+            ],
+        }
+        out = exportcode_to_mldsl(export_obj, api)
+        self.assertIn("select.ifentity.значение_равно(", out)
+        self.assertNotIn("select.ifentity.переменная(", out)
+        self.assertNotIn("select.ifentity.сущность_по_условию(", out)
+
+    def test_select_module_actions_are_scoped_by_condition_domain(self):
+        api = {
+            "select": {
+                "ifentity_sravnit_chisla_oblegchennaya_versiya": {
+                    "sign1": "Выбрать обьект",
+                    "sign2": "Сущность по условию",
+                    "aliases": ["сравнить_число_облегчённо", "сущность_по_условию"],
+                    "params": [
+                        {"name": "num", "slot": 0, "mode": "NUMBER"},
+                        {"name": "num2", "slot": 1, "mode": "NUMBER"},
+                    ],
+                    "enums": [{"name": "tip_proverki", "slot": 13, "options": {"> (Больше)": "Больше"}}],
+                }
+            }
+        }
+        export_obj = {
+            "version": 2,
+            "rows": [
+                {
+                    "row": 0,
+                    "glass": {"x": 10, "y": 0, "z": 0},
+                    "blocks": [
+                        {"block": "minecraft:diamond_block", "pos": {"x": 10, "y": 1, "z": 0}, "sign": ["Событие игрока", "Вход", "", ""]},
+                        {
+                            "block": "minecraft:planks",
+                            "pos": {"x": 8, "y": 1, "z": 0},
+                            "sign": ["Выбрать обьект", "Сущность по условию", "", ""],
+                            "hasChest": True,
+                            "chestItems": [
+                                {"slot": 0, "id": "minecraft:apple", "displayName": "5"},
+                                {"slot": 1, "id": "minecraft:apple", "displayName": "4"},
+                                {"slot": 13, "id": "minecraft:anvil", "displayName": "> (Больше)"},
+                            ],
+                        },
+                    ],
+                }
+            ],
+        }
+        out = exportcode_to_mldsl(export_obj, api)
+        self.assertIn("select.ifentity.сравнить_число_облегчённо(", out)
+
     def test_text_mode_keeps_variable_value_not_stringified(self):
         api = {
             "player": {

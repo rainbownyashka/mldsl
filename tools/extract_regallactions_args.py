@@ -9,6 +9,7 @@ ALIASES_PATH = aliases_json_path()
 OUT_PATH = out_dir() / "regallactions_args.json"
 
 GLASS_ID = "minecraft:stained_glass_pane"
+ROW_SIZE = 9
 
 # Input item ids used by the server UIs (by glass meta / color marker).
 INPUT_ITEM_BY_MODE: dict[str, list[str]] = {
@@ -17,6 +18,7 @@ INPUT_ITEM_BY_MODE: dict[str, list[str]] = {
     "VARIABLE": ["minecraft:magma_cream"],
     "ARRAY": ["minecraft:item_frame"],
     "LOCATION": ["minecraft:paper"],
+    "VECTOR": [],
 }
 
 
@@ -110,6 +112,12 @@ def parse_record_lines(lines):
 
 def determine_mode(glass_meta: int, glass_name: str) -> str | None:
     name_clean = strip_colors(glass_name).lower()
+    if name_clean.startswith("вектор") or name_clean.startswith("vector"):
+        return "VECTOR"
+    if "блок" in name_clean:
+        return "BLOCK"
+    if glass_meta == 9:
+        return "VECTOR"
     if glass_meta == 0:
         return "ANY"
     if glass_meta == 3 and name_clean.startswith("текст"):
@@ -135,6 +143,13 @@ def determine_mode_v2(items: dict, glass_slot: int, glass_meta: int, glass_name:
     NOTE: Glass display names in regallactions_export.txt are sometimes garbled by encoding,
     so this function intentionally avoids depending on them unless unavoidable (meta=5).
     """
+    name_clean = strip_colors(glass_name).lower()
+    if name_clean.startswith("вектор") or name_clean.startswith("vector"):
+        return "VECTOR"
+    if "блок" in name_clean:
+        return "BLOCK"
+    if glass_meta == 9:
+        return "VECTOR"
     if glass_meta == 0:
         return "ANY"
     if glass_meta == 3:
@@ -149,7 +164,6 @@ def determine_mode_v2(items: dict, glass_slot: int, glass_meta: int, glass_name:
     if glass_meta == 5:
         # Meta=5 is ambiguous: it can mean ARRAY or LOCATION. Prefer detection by a
         # (readable) glass name, then fall back to neighbor input items if present.
-        name_clean = strip_colors(glass_name).lower()
         if ("местополож" in name_clean) or ("location" in name_clean):
             return "LOCATION"
         max_row = (max(items.keys()) // 9) if items else 5
@@ -166,15 +180,14 @@ def determine_mode_v2(items: dict, glass_slot: int, glass_meta: int, glass_name:
     # while the same meta is also used for non-arg "output" panes (e.g. "Выходной массив").
     # Disambiguate by the pane display name.
     if glass_meta == 13:
-        name_clean = strip_colors(glass_name).lower()
         if any(x in name_clean for x in ["блок", "предмет", "item", "block"]):
             return "ITEM"
     return None
 
 
 def neighbor_slots(slot: int, max_row: int):
-    row = slot // 9
-    col = slot % 9
+    row = slot // ROW_SIZE
+    col = slot % ROW_SIZE
     order = [
         (row + 1, col),  # down
         (row, col - 1),  # left
@@ -184,8 +197,8 @@ def neighbor_slots(slot: int, max_row: int):
     for r, c in order:
         # AGENT_TAG: merged_pages_neighbors
         # Support merged multi-page exports where slots go beyond a single 6-row chest page.
-        if 0 <= r <= max_row and 0 <= c < 9:
-            yield r * 9 + c
+        if 0 <= r <= max_row and 0 <= c < ROW_SIZE:
+            yield r * ROW_SIZE + c
 
 
 def find_candidate_slot(items: dict, base_slot: int, reserved: set[int], max_row: int) -> int | None:
@@ -231,7 +244,7 @@ def find_candidate_slot_v2(items: dict, base_slot: int, reserved: set[int], mode
         if s not in items:
             return s
 
-    if mode == "ITEM":
+    if mode in {"ITEM", "BLOCK"}:
         for s in neighbor_slots(base_slot, max_row):
             if s in reserved:
                 continue
@@ -242,6 +255,159 @@ def find_candidate_slot_v2(items: dict, base_slot: int, reserved: set[int], mode
                 return s
 
     return None
+
+
+_REPEATED_TOKENS: dict[str, tuple[str, ...]] = {
+    "NUMBER": ("число(а)", "числа"),
+    "TEXT": ("текст(ы)", "тексты"),
+    "ITEM": ("предмет(ы)", "предметы"),
+    "LOCATION": ("местоположение(я)", "местоположения", "местополож"),
+    "ARRAY": ("массив(ы)", "массивы"),
+    "VECTOR": ("вектор(ы)", "векторы", "вектор"),
+    "ANY": ("значение(я)", "значения"),
+}
+
+
+def _is_repeated_marker(item: dict | None, mode: str) -> bool:
+    if not item or item.get("id") != GLASS_ID:
+        return False
+    item_mode = determine_mode(int(item.get("meta", 0)), str(item.get("name", "")))
+    if item_mode != mode:
+        return False
+    name_n = normalize(str(item.get("name", "")))
+    lore_raw = str(item.get("lore", ""))
+    lore_n = normalize(lore_raw)
+    has_plural_hint = any(t in name_n for t in _REPEATED_TOKENS.get(mode, ()))
+    has_arrow_hint = ("ниже" in lore_n) or ("выше" in lore_n) or ("⇩" in lore_raw) or ("⇧" in lore_raw)
+    return has_plural_hint or has_arrow_hint
+
+
+def _find_nearest_repeated_marker(
+    items: dict[int, dict],
+    row: int,
+    col: int,
+    marker_cols: list[int],
+    mode: str,
+) -> dict | None:
+    best = None
+    best_dist = None
+    for c in marker_cols:
+        s = row * ROW_SIZE + c
+        it = items.get(s)
+        if not _is_repeated_marker(it, mode):
+            continue
+        dist = abs(c - col)
+        if best is None or dist < best_dist:
+            best = it
+            best_dist = dist
+    return best
+
+
+def _find_repeated_lane_magic_slots(
+    items: dict[int, dict],
+    mode: str,
+    min_total_markers: int = 7,
+    min_consecutive_markers: int = 3,
+    required_empty_rows: int = 3,
+) -> dict[int, dict]:
+    if not items:
+        return {}
+    min_slot = min(items.keys())
+    max_slot = max(items.keys())
+    min_row = min_slot // ROW_SIZE
+    max_row = max_slot // ROW_SIZE
+    max_inventory_slot = (6 * ROW_SIZE) - 1
+    candidates: list[tuple[int, int, int, int, dict[int, dict]]] = []
+
+    for row in range(min_row, max_row + 1):
+        marker_cols = []
+        for col in range(ROW_SIZE):
+            slot = row * ROW_SIZE + col
+            if _is_repeated_marker(items.get(slot), mode):
+                marker_cols.append(col)
+        if len(marker_cols) < min_total_markers:
+            continue
+
+        has_consecutive = False
+        i = 0
+        while i < len(marker_cols):
+            a = marker_cols[i]
+            b = a
+            while i + 1 < len(marker_cols) and marker_cols[i + 1] == b + 1:
+                i += 1
+                b = marker_cols[i]
+            if (b - a + 1) >= min_consecutive_markers:
+                has_consecutive = True
+                break
+            i += 1
+        if not has_consecutive:
+            continue
+
+        # Current repeated-lane parser:
+        # once a lane is recognized by marker glasses, inspect every column in lane span
+        # (including enum/non-glass columns) and register each successful column.
+        lane_start = marker_cols[0]
+        lane_end = marker_cols[-1]
+        local: dict[int, dict] = {}
+        lane_valid = True
+        for col in range(lane_start, lane_end + 1):
+            lane_slot = row * ROW_SIZE + col
+            src = items.get(lane_slot)
+            if not _is_repeated_marker(src, mode):
+                src = _find_nearest_repeated_marker(items, row, col, marker_cols, mode)
+            if src is None:
+                lane_valid = False
+                break
+            s = lane_slot + ROW_SIZE
+            arg_slots = []
+            for _ in range(required_empty_rows):
+                if s > max_inventory_slot or s in items:
+                    lane_valid = False
+                    break
+                arg_slots.append(s)
+                s += ROW_SIZE
+            if not lane_valid:
+                break
+            src_meta = int(src.get("meta", 0))
+            src_name = strip_colors(str(src.get("name", ""))).strip()
+            local[lane_slot] = {
+                "argSlots": arg_slots,
+                "glassMeta": src_meta,
+                "glassName": src_name,
+                "mode": mode,
+                "keyNorm": "" if src_meta == 0 else normalize(src_name),
+            }
+        if lane_valid and local:
+            candidates.append((len(local), len(marker_cols), -row, lane_start, local))
+
+    if not candidates:
+        return {}
+    candidates.sort(reverse=True)
+    return candidates[0][4]
+
+
+def _find_repeated_number_magic_slots(items: dict[int, dict]) -> dict[int, dict]:
+    return _find_repeated_lane_magic_slots(items, mode="NUMBER")
+
+
+def _find_repeated_text_magic_slots(items: dict[int, dict]) -> dict[int, dict]:
+    return _find_repeated_lane_magic_slots(items, mode="TEXT")
+
+
+def _find_repeated_item_magic_slots(items: dict[int, dict]) -> dict[int, dict]:
+    return _find_repeated_lane_magic_slots(items, mode="ITEM")
+
+
+def _find_repeated_location_magic_slots(items: dict[int, dict]) -> dict[int, dict]:
+    return _find_repeated_lane_magic_slots(items, mode="LOCATION")
+
+
+def _find_repeated_array_magic_slots(items: dict[int, dict]) -> dict[int, dict]:
+    return _find_repeated_lane_magic_slots(items, mode="ARRAY")
+
+
+def _find_repeated_any_magic_slots(items: dict[int, dict]) -> dict[int, dict]:
+    return _find_repeated_lane_magic_slots(items, mode="ANY")
 
 
 def parse_variant_info(lore: str) -> dict | None:
@@ -295,6 +461,23 @@ def extract_args(record: dict):
     items = record["items"]
     max_row = (max(items.keys()) // 9) if items else 5
     reserved = set()
+    repeated_number_magic = _find_repeated_number_magic_slots(items)
+    repeated_text_magic = _find_repeated_text_magic_slots(items)
+    repeated_item_magic = _find_repeated_item_magic_slots(items)
+    repeated_location_magic = _find_repeated_location_magic_slots(items)
+    repeated_array_magic = _find_repeated_array_magic_slots(items)
+    repeated_any_magic = _find_repeated_any_magic_slots(items)
+    repeated_lane_maps = [
+        repeated_number_magic,
+        repeated_text_magic,
+        repeated_item_magic,
+        repeated_location_magic,
+        repeated_array_magic,
+        repeated_any_magic,
+    ]
+    lane_slots = set()
+    for lane_map in repeated_lane_maps:
+        lane_slots.update(lane_map.keys())
     for slot, item in sorted(items.items()):
         if item["id"] != GLASS_ID:
             continue
@@ -303,26 +486,102 @@ def extract_args(record: dict):
         mode = determine_mode_v2(items, slot, item["meta"], item["name"])
         if mode is None:
             continue
-        arg_slot = find_candidate_slot_v2(items, slot, reserved, mode, max_row)
-        if arg_slot is None:
+        if repeated_item_magic and _is_repeated_marker(item, "ITEM") and slot not in repeated_item_magic:
             continue
-        reserved.add(arg_slot)
-        arg_has_item = arg_slot in items
-        variant = None
-        if arg_has_item:
-            variant = parse_variant_info(items[arg_slot].get("lore", ""))
-        glass_meta_filter = None if item["meta"] == 0 else item["meta"]
-        args.append({
-            "glassSlot": slot,
-            "glassMeta": item["meta"],
-            "glassMetaFilter": glass_meta_filter,
-            "glassName": strip_colors(item["name"]).strip(),
-            "keyNorm": "" if item["meta"] == 0 else normalize(item["name"]),
-            "mode": mode,
-            "argSlot": arg_slot,
-            "argHasItem": arg_has_item,
-            "variant": variant,
-        })
+        if repeated_text_magic and _is_repeated_marker(item, "TEXT") and slot not in repeated_text_magic:
+            continue
+        if repeated_number_magic and _is_repeated_marker(item, "NUMBER") and slot not in repeated_number_magic:
+            continue
+        if repeated_location_magic and _is_repeated_marker(item, "LOCATION") and slot not in repeated_location_magic:
+            continue
+        if repeated_array_magic and _is_repeated_marker(item, "ARRAY") and slot not in repeated_array_magic:
+            continue
+        if repeated_any_magic and _is_repeated_marker(item, "ANY") and slot not in repeated_any_magic:
+            continue
+        # Lane layouts are emitted in one strict row-major pass later.
+        if slot in lane_slots:
+            continue
+
+        magic_spec = (
+            repeated_number_magic.get(slot)
+            or repeated_text_magic.get(slot)
+            or repeated_item_magic.get(slot)
+            or repeated_location_magic.get(slot)
+            or repeated_array_magic.get(slot)
+            or repeated_any_magic.get(slot)
+        )
+        if magic_spec:
+            candidate_slots = magic_spec["argSlots"]
+            glass_meta = int(magic_spec["glassMeta"])
+            glass_name = magic_spec["glassName"]
+            key_norm = magic_spec["keyNorm"]
+            mode = magic_spec["mode"]
+        else:
+            arg_slot = find_candidate_slot_v2(items, slot, reserved, mode, max_row)
+            if arg_slot is None:
+                continue
+            candidate_slots = [arg_slot]
+            glass_meta = int(item["meta"])
+            glass_name = strip_colors(item["name"]).strip()
+            key_norm = "" if glass_meta == 0 else normalize(item["name"])
+        glass_meta_filter = None if glass_meta == 0 else glass_meta
+        for arg_slot in candidate_slots:
+            if arg_slot in reserved:
+                continue
+            reserved.add(arg_slot)
+            arg_has_item = arg_slot in items
+            variant = None
+            if arg_has_item:
+                variant = parse_variant_info(items[arg_slot].get("lore", ""))
+            args.append({
+                "glassSlot": slot,
+                "glassMeta": glass_meta,
+                "glassMetaFilter": glass_meta_filter,
+                "glassName": glass_name,
+                "keyNorm": key_norm,
+                "mode": mode,
+                "argSlot": arg_slot,
+                "argHasItem": arg_has_item,
+                "variant": variant,
+            })
+
+    # Emit lane arguments in strict row-major order:
+    # first row across all lane columns, then second row, then third row.
+    def _emit_lane_map_row_major(lane_map: dict[int, dict]):
+        if not lane_map:
+            return
+        ordered_lane_slots = sorted(lane_map.keys())
+        max_depth = max((len(spec.get("argSlots") or []) for spec in lane_map.values()), default=0)
+        for depth in range(max_depth):
+            for lane_slot in ordered_lane_slots:
+                lane_spec = lane_map.get(lane_slot) or {}
+                lane_arg_slots = lane_spec.get("argSlots") or []
+                if depth >= len(lane_arg_slots):
+                    continue
+                arg_slot = lane_arg_slots[depth]
+                if arg_slot in reserved:
+                    continue
+                reserved.add(arg_slot)
+                glass_meta = int(lane_spec.get("glassMeta", 0))
+                glass_meta_filter = None if glass_meta == 0 else glass_meta
+                arg_has_item = arg_slot in items
+                variant = None
+                if arg_has_item:
+                    variant = parse_variant_info(items[arg_slot].get("lore", ""))
+                args.append({
+                    "glassSlot": lane_slot,
+                    "glassMeta": glass_meta,
+                    "glassMetaFilter": glass_meta_filter,
+                    "glassName": lane_spec.get("glassName", ""),
+                    "keyNorm": lane_spec.get("keyNorm", ""),
+                    "mode": lane_spec.get("mode"),
+                    "argSlot": arg_slot,
+                    "argHasItem": arg_has_item,
+                    "variant": variant,
+                })
+
+    for lane_map in repeated_lane_maps:
+        _emit_lane_map_row_major(lane_map)
     return args
 
 

@@ -21,6 +21,9 @@ GAMEVALUES_PATH = gamevalues_path()
 MAX_CMD_LEN = 240
 MAX_ACTIONS_PER_ROW = 43
 AUTO_SPLIT_FUNC_PREFIX = "__autosplit_row_"
+AUTO_SPLIT_DEBUG = os.environ.get("MLDSL_AUTOSPLIT_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+COMPILE_DEEP_DEBUG = os.environ.get("MLDSL_COMPILE_DEEP_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+AUTO_SPLIT_MAX_ITERS = int(os.environ.get("MLDSL_AUTOSPLIT_MAX_ITERS", "50000") or "50000")
 
 # Internal stacks for function args/returns. Names must be rare to avoid clashing with user variables in the world.
 ARGS_STACK_NAME = "__mldsl_args"
@@ -29,6 +32,215 @@ TMP_VAR_PREFIX = "__mldsl_tmp"
 
 # Stack top index. Your server's array GUI actions are 1-based.
 STACK_TOP_INDEX = 1
+
+
+def _autosplit_dbg(msg: str):
+    if not AUTO_SPLIT_DEBUG:
+        return
+    print(f"[autosplit-debug] {msg}", file=__import__("sys").stderr)
+
+
+def _compile_dbg(msg: str):
+    if not COMPILE_DEEP_DEBUG:
+        return
+    print(f"[compile-debug] {msg}", file=__import__("sys").stderr)
+
+
+def _strict_unknown_enabled() -> bool:
+    return os.environ.get("MLDSL_STRICT_UNKNOWN", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _warn_unknown_enabled() -> bool:
+    return os.environ.get("MLDSL_WARN_UNKNOWN", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _extract_autosplit_call_target(entry: dict) -> str | None:
+    if not isinstance(entry, dict):
+        return None
+    name_norm = norm_key(str(entry.get("name") or ""))
+    if "вызвать функцию" not in name_norm and "call function" not in name_norm:
+        return None
+    args = str(entry.get("args") or "")
+    m = re.search(r"text\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)", args)
+    if not m:
+        return None
+    target = m.group(1)
+    if not target.startswith(AUTO_SPLIT_FUNC_PREFIX):
+        return None
+    return target
+
+
+def _collapse_autosplit_trampoline_funcs(entries: list[dict]) -> tuple[list[dict], int]:
+    if not entries:
+        return entries, 0
+
+    def_counts: dict[str, int] = {}
+    for e in entries:
+        if e.get("block") == "lapis_block":
+            nm = str(e.get("name") or "")
+            if nm.startswith(AUTO_SPLIT_FUNC_PREFIX):
+                def_counts[nm] = def_counts.get(nm, 0) + 1
+
+    mapping: dict[str, str] = {}
+    ranges: dict[str, tuple[int, int]] = {}
+    i = 0
+    n = len(entries)
+    while i < n:
+        e = entries[i]
+        if e.get("block") != "lapis_block":
+            i += 1
+            continue
+        fn_name = str(e.get("name") or "")
+        if not fn_name.startswith(AUTO_SPLIT_FUNC_PREFIX) or def_counts.get(fn_name, 0) != 1:
+            i += 1
+            continue
+        j = i + 1
+        while j < n and entries[j].get("block") != "newline":
+            j += 1
+        body = entries[i + 1 : j]
+        if len(body) != 1:
+            i = j + 1
+            continue
+        target = _extract_autosplit_call_target(body[0])
+        if not target or target == fn_name:
+            i = j + 1
+            continue
+        mapping[fn_name] = target
+        ranges[fn_name] = (i, j)
+        i = j + 1
+
+    if not mapping:
+        return entries, 0
+
+    resolved: dict[str, str] = {}
+    for src in mapping:
+        cur = mapping[src]
+        seen = {src}
+        while cur in mapping and cur not in seen:
+            seen.add(cur)
+            cur = mapping[cur]
+        resolved[src] = cur
+
+    for e in entries:
+        target = _extract_autosplit_call_target(e)
+        if not target:
+            continue
+        final = resolved.get(target)
+        if not final or final == target:
+            continue
+        args = str(e.get("args") or "")
+        e["args"] = re.sub(
+            rf"text\(\s*{re.escape(target)}\s*\)",
+            f"text({final})",
+            args,
+            count=1,
+        )
+
+    skip_idx: set[int] = set()
+    for src in resolved:
+        r = ranges.get(src)
+        if not r:
+            continue
+        start, end = r
+        for k in range(start, end):
+            skip_idx.add(k)
+
+    compact: list[dict] = []
+    for idx, e in enumerate(entries):
+        if idx in skip_idx:
+            continue
+        if e.get("block") == "newline":
+            if not compact or compact[-1].get("block") == "newline":
+                continue
+        compact.append(e)
+    if compact and compact[-1].get("block") == "newline":
+        compact.pop()
+
+    return compact, len(resolved)
+
+
+def _promote_autosplit_targets_into_named_wrappers(entries: list[dict]) -> tuple[list[dict], int]:
+    if not entries:
+        return entries, 0
+
+    promoted = 0
+    while True:
+        def_counts: dict[str, int] = {}
+        ranges: dict[str, tuple[int, int]] = {}
+        i = 0
+        n = len(entries)
+        while i < n:
+            e = entries[i]
+            if e.get("block") != "lapis_block":
+                i += 1
+                continue
+            nm = str(e.get("name") or "")
+            def_counts[nm] = def_counts.get(nm, 0) + 1
+            j = i + 1
+            while j < n and entries[j].get("block") != "newline":
+                j += 1
+            if nm not in ranges:
+                ranges[nm] = (i, j)
+            i = j + 1
+
+        changed = False
+        for fn_name, (start, end) in ranges.items():
+            if def_counts.get(fn_name, 0) != 1:
+                continue
+            body = entries[start + 1 : end]
+            if len(body) != 1:
+                continue
+            target = _extract_autosplit_call_target(body[0])
+            if not target or not target.startswith(AUTO_SPLIT_FUNC_PREFIX):
+                continue
+            if target == fn_name:
+                continue
+            if def_counts.get(target, 0) != 1 or target not in ranges:
+                continue
+            t_start, _t_end = ranges[target]
+            # Promote only when wrapper points to a different function block.
+            if t_start == start:
+                continue
+
+            # Rename autosplit target function to the wrapper public name.
+            entries[t_start]["name"] = fn_name
+
+            # Rewrite calls that target old autosplit name -> new public name.
+            for e in entries:
+                call_target = _extract_autosplit_call_target(e)
+                if call_target != target:
+                    continue
+                args = str(e.get("args") or "")
+                e["args"] = re.sub(
+                    rf"text\(\s*{re.escape(target)}\s*\)",
+                    f"text({fn_name})",
+                    args,
+                    count=1,
+                )
+
+            # Remove wrapper function block and trailing newline (if present).
+            del entries[start:end]
+            if start < len(entries) and entries[start].get("block") == "newline":
+                del entries[start]
+
+            promoted += 1
+            changed = True
+            break
+
+        if not changed:
+            break
+
+    # Normalize accidental duplicated/trailing newlines.
+    compact: list[dict] = []
+    for e in entries:
+        if e.get("block") == "newline":
+            if not compact or compact[-1].get("block") == "newline":
+                continue
+        compact.append(e)
+    if compact and compact[-1].get("block") == "newline":
+        compact.pop()
+
+    return compact, promoted
 
 
 def parse_item_display_name(raw: str) -> str:
@@ -446,6 +658,89 @@ def parse_call_args(arg_str: str):
             pos.append(v)
     return kv, pos
 
+
+def _has_top_level_assignment_operator(expr: str) -> bool:
+    """
+    True only when assignment operator appears at top level (outside quotes/brackets).
+    Prevents mis-detecting call/text lines like:
+      player.msg("sum=a pred=b")
+    as assignment sugar.
+    """
+    s = expr or ""
+    in_str = False
+    str_ch = ""
+    esc = False
+    paren = brace = bracket = 0
+    for i, ch in enumerate(s):
+        if esc:
+            esc = False
+            continue
+        if ch == "\\":
+            esc = True
+            continue
+        if ch in ('"', "'"):
+            if in_str and ch == str_ch:
+                in_str = False
+                str_ch = ""
+            elif not in_str:
+                in_str = True
+                str_ch = ch
+            continue
+        if in_str:
+            continue
+        if ch == "(":
+            paren += 1
+            continue
+        if ch == ")":
+            paren = max(0, paren - 1)
+            continue
+        if ch == "{":
+            brace += 1
+            continue
+        if ch == "}":
+            brace = max(0, brace - 1)
+            continue
+        if ch == "[":
+            bracket += 1
+            continue
+        if ch == "]":
+            bracket = max(0, bracket - 1)
+            continue
+        if ch != "=" or paren != 0 or brace != 0 or bracket != 0:
+            continue
+        prev = s[i - 1] if i > 0 else ""
+        nxt = s[i + 1] if i + 1 < len(s) else ""
+        # Skip comparison-ish operators at top level.
+        if prev in "<>!" or nxt == "=":
+            continue
+        return True
+    return False
+
+
+def _replace_unescaped_amp_with_section(s: str) -> str:
+    """
+    Replace unescaped '&' with '§'.
+    Escaped form '\\&' is preserved as literal '&' (backslash removed).
+    """
+    if not s:
+        return s
+    out: list[str] = []
+    i = 0
+    n = len(s)
+    while i < n:
+        ch = s[i]
+        if ch == "\\" and i + 1 < n and s[i + 1] == "&":
+            out.append("&")
+            i += 2
+            continue
+        if ch == "&":
+            out.append("§")
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
 def ru_to_translit_ident(s: str) -> str:
     """
     Best-effort RU -> translit conversion for identifiers (enum/param names).
@@ -506,6 +801,7 @@ def wrap_value(mode: str | None, value: str) -> str:
     if gv:
         return gv
     # Keep only known wrapper forms; everything else that looks like a call is NOT executable on server.
+    explicit_wrap_head = ""
     m_wrap = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(.*\)\s*$", v)
     if m_wrap:
         head = (m_wrap.group(1) or "").lower()
@@ -526,37 +822,157 @@ def wrap_value(mode: str | None, value: str) -> str:
             "item",
         }
         if head in allowed:
-            return v
+            explicit_wrap_head = head
     # Prevent accidental "nested calls" being treated as plain text/number/etc.
     # If user really wants the literal text `foo()` they should quote it.
-    if re.match(r"^[\w\u0400-\u04FF]+(?:\.[\w\u0400-\u04FF]+)?\s*\(.*\)\s*$", v):
+    if not explicit_wrap_head and re.match(r"^[\w\u0400-\u04FF]+(?:\.[\w\u0400-\u04FF]+)?\s*\(.*\)\s*$", v):
         raise ValueError(
             f"Вложенный вызов `{v}` в аргументе не выполняется на сервере автоматически. "
             "Сделай так: tmp = foo(); и используй %var(tmp)% в тексте, или передай строку в кавычках."
         )
     m = (mode or "").upper()
+    def _strip_matching_quotes(s: str) -> str:
+        if len(s) >= 2 and ((s[0] == '"' and s[-1] == '"') or (s[0] == "'" and s[-1] == "'")):
+            return s[1:-1]
+        return s
+
+    def _normalize_item_type_kw(s: str) -> str:
+        """
+        Normalize `item(type=..., ...)` -> `item(..., ...)` for runtime compatibility.
+        Some runtimes ignore slot fill for `type=` style payload in non-ITEM contexts.
+        """
+        raw = _replace_unescaped_amp_with_section((s or "").strip())
+        m_item = re.match(r"^item\s*\(\s*(.*?)\s*\)\s*$", raw, re.I)
+        if not m_item:
+            return raw
+        inner = (m_item.group(1) or "").strip()
+        m_type = re.match(r"^type\s*=\s*([^,\)]+)\s*(?:,\s*(.*))?$", inner, re.I)
+        if not m_type:
+            return raw
+        type_tok = (m_type.group(1) or "").strip()
+        rest = (m_type.group(2) or "").strip()
+        return f"item({type_tok}{', ' + rest if rest else ''})"
+
+    def _location_to_paper_item(s: str) -> str:
+        raw = _strip_matching_quotes((s or "").strip())
+        raw = _replace_unescaped_amp_with_section(raw)
+        raw = raw.replace("\\", "\\\\").replace('"', '\\"')
+        return f'item(minecraft:paper, name="{raw}")'
+
+    def _is_selected_placeholder_var(s: str) -> bool:
+        # Common server placeholder variable naming: %selected%myVar
+        return re.fullmatch(r"%(?:[a-zA-Z_][a-zA-Z0-9_]*)%[0-9A-Za-z_\u0400-\u04FF]+", s or "") is not None
+
     if m == "TEXT":
+        if explicit_wrap_head:
+            if explicit_wrap_head == "text":
+                m_text = re.match(r"^text\s*\(\s*(.*?)\s*\)\s*$", v, re.I)
+                if m_text:
+                    inner = _replace_unescaped_amp_with_section((m_text.group(1) or ""))
+                    return f"text({inner})"
+            return _replace_unescaped_amp_with_section(v)
+        was_quoted = len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'"))
+        raw_unquoted = _strip_matching_quotes(v)
+        raw_unquoted = _replace_unescaped_amp_with_section(raw_unquoted)
+        if was_quoted:
+            return f"text({raw_unquoted})"
         # Sugar: bare identifiers in TEXT slots are treated as variable references.
         # Use quotes or explicit text(...) to force literal text.
-        if re.match(rf"^{NAME_RE}$", v) and safe_eval_number_expr(v) is None:
-            return f"var({v})"
-        return f"text({v})"
+        if re.match(rf"^{NAME_RE}$", raw_unquoted) and safe_eval_number_expr(raw_unquoted) is None:
+            return f"var({raw_unquoted})"
+        # Normalize quoted literals to plain text payload (without embedded quote chars).
+        return f"text({raw_unquoted})"
     if m == "NUMBER":
+        if explicit_wrap_head:
+            bad = {"item", "loc", "arr", "arr_save", "array"}
+            if explicit_wrap_head in bad:
+                raise ValueError(f"NUMBER-аргумент `{v}` имеет несовместимый тип `{explicit_wrap_head}(...)`")
+            return v
+        raw_unquoted = _strip_matching_quotes(v)
+        if _is_selected_placeholder_var(raw_unquoted):
+            return f"var({raw_unquoted})"
+        if "%" in raw_unquoted and re.search(r"[+\-*/()]", raw_unquoted):
+            raise ValueError(
+                f"NUMBER-аргумент `{v}` выглядит как placeholder-выражение. "
+                "Вычисли его заранее в переменную и передай `var(...)`."
+            )
         # Sugar: bare identifiers in NUMBER slots are treated as variable references.
         # Use explicit num(...) or numeric literal to force constant behavior.
         if re.match(rf"^{NAME_RE}$", v) and safe_eval_number_expr(v) is None:
             return f"var({v})"
         return f"num({v})"
     if m == "VARIABLE":
+        if explicit_wrap_head:
+            if explicit_wrap_head in {"item"}:
+                print(
+                    f"[warn] VARIABLE-аргумент `{v}` передан как item(...): пропускаю как есть для runtime-совместимости",
+                    file=__import__("sys").stderr,
+                )
+                return _normalize_item_type_kw(v)
+            if explicit_wrap_head not in {"var", "var_save"}:
+                raise ValueError(f"VARIABLE-аргумент `{v}` имеет несовместимый тип `{explicit_wrap_head}(...)`")
+            return v
         return f"var({v})"
     if m == "LOCATION":
-        return f"loc({v})"
+        if explicit_wrap_head:
+            if explicit_wrap_head not in {"loc", "var", "var_save", "item"}:
+                raise ValueError(f"LOCATION-аргумент `{v}` имеет несовместимый тип `{explicit_wrap_head}(...)`")
+            if explicit_wrap_head in {"var", "var_save"}:
+                return v
+            if explicit_wrap_head == "item":
+                return _normalize_item_type_kw(v)
+            m_loc = re.match(r"^loc\s*\(\s*(.*?)\s*\)\s*$", v, re.I)
+            inner = (m_loc.group(1) if m_loc else v).strip()
+            return _location_to_paper_item(inner)
+        return _location_to_paper_item(v)
     if m == "ARRAY":
+        if explicit_wrap_head:
+            if explicit_wrap_head not in {"arr", "arr_save", "array", "var", "var_save"}:
+                raise ValueError(f"ARRAY-аргумент `{v}` имеет несовместимый тип `{explicit_wrap_head}(...)`")
+            return v
         return f"arr({v})"
     if m == "ITEM":
-        return f"item({v})"
+        if explicit_wrap_head:
+            if explicit_wrap_head not in {"item", "var", "var_save"}:
+                raise ValueError(f"ITEM-аргумент `{v}` имеет несовместимый тип `{explicit_wrap_head}(...)`")
+            return _normalize_item_type_kw(v) if explicit_wrap_head == "item" else v
+        raw_unquoted = _strip_matching_quotes(v)
+        if _is_selected_placeholder_var(raw_unquoted) or (
+            re.match(rf"^{NAME_RE}$", raw_unquoted) and safe_eval_number_expr(raw_unquoted) is None
+        ):
+            return f"var({raw_unquoted})"
+        return f"item({_replace_unescaped_amp_with_section(v)})"
     if m == "BLOCK":
-        return f"item({v})"
+        if explicit_wrap_head:
+            if explicit_wrap_head not in {"item", "var", "var_save"}:
+                raise ValueError(f"BLOCK-аргумент `{v}` имеет несовместимый тип `{explicit_wrap_head}(...)`")
+            return _normalize_item_type_kw(v) if explicit_wrap_head == "item" else v
+        raw_unquoted = _strip_matching_quotes(v)
+        if _is_selected_placeholder_var(raw_unquoted) or (
+            re.match(rf"^{NAME_RE}$", raw_unquoted) and safe_eval_number_expr(raw_unquoted) is None
+        ):
+            return f"var({raw_unquoted})"
+        return f"item({_replace_unescaped_amp_with_section(v)})"
+    if m == "VECTOR":
+        if explicit_wrap_head:
+            if explicit_wrap_head not in {"item", "var", "var_save"}:
+                raise ValueError(f"VECTOR-аргумент `{v}` имеет несовместимый тип `{explicit_wrap_head}(...)`")
+            return _normalize_item_type_kw(v) if explicit_wrap_head == "item" else v
+        raw_unquoted = _strip_matching_quotes(v)
+        if _is_selected_placeholder_var(raw_unquoted) or (
+            re.match(rf"^{NAME_RE}$", raw_unquoted) and safe_eval_number_expr(raw_unquoted) is None
+        ):
+            return f"var({raw_unquoted})"
+        return _replace_unescaped_amp_with_section(v)
+    if m == "ANY":
+        if explicit_wrap_head:
+            return v
+        raw_unquoted = _strip_matching_quotes(v)
+        if _is_selected_placeholder_var(raw_unquoted):
+            return f"var({raw_unquoted})"
+        if re.match(rf"^{NAME_RE}$", raw_unquoted) and safe_eval_number_expr(raw_unquoted) is None:
+            return f"var({raw_unquoted})"
+        return v
     return v
 
 
@@ -585,6 +1001,10 @@ MULTISELECT_RE = re.compile(
 LOOP_RE = re.compile(rf"^\s*(?:loop|цикл)\s+([\w\u0400-\u04FF]+)(?:\s+every)?\s+(\d+)\s*\{{\s*$", re.I)
 ASSIGN_RE = re.compile(
     rf"^\s*(?:(save)\s+)?({NAME_RE})\s*(?:~\s*)?(?:([+\-*/])\s*)?=\s*(.+?)\s*;?\s*$",
+    re.I,
+)
+ASSIGN_RE_DYNAMIC = re.compile(
+    r"^\s*(?:(save)\s+)?(.+?)\s*(?:~\s*)?(?:([+\-*/])\s*)?=\s*(.+?)\s*;?\s*$",
     re.I,
 )
 SAVE_SHORTHAND_RE = re.compile(rf"^\s*({NAME_RE})\s*~\s*(.+?)\s*;?\s*$", re.I)
@@ -737,7 +1157,7 @@ def preprocess_numeric_expr(expr: str) -> tuple[str, dict[str, str]]:
     Example: %selected%counter + 1  ->  __mlccv1 + 1  (with map __mlccv1 -> %selected%counter)
     """
     # %token%suffix where suffix is identifier chars; keep it conservative to avoid eating %var(...)%.
-    token_re = re.compile(r"%%(?:[a-zA-Z_][a-zA-Z0-9_]*)%%[0-9A-Za-z_\u0400-\u04FF]+")
+    token_re = re.compile(r"%(?:[a-zA-Z_][a-zA-Z0-9_]*)%[0-9A-Za-z_\u0400-\u04FF]+")
     out = expr
     mapping: dict[str, str] = {}
     idx = 0
@@ -946,13 +1366,16 @@ def compile_line(api: dict, line: str):
     # Accept Cyrillic keyword names for params/enums by transliterating to canonical keys.
     # Example: if_player.режим_игрока(режим_игры="Креатив")
     extra_kv: dict[str, str] = {}
+    translit_src: dict[str, str] = {}
     for k, v in (kv or {}).items():
         if any("а" <= ch.lower() <= "я" or ch.lower() == "ё" for ch in str(k)):
             kk = ru_to_translit_ident(str(k))
             if kk and kk not in kv and kk not in extra_kv:
                 extra_kv[kk] = v
+                translit_src[kk] = str(k)
     if extra_kv:
         kv.update(extra_kv)
+
     # Special-case: some actions use a plain chest without any glass "arg markers".
     # For such actions, we still want to support passing items via slot(N)=item(...)
     # so /placeadvanced can fill the chest.
@@ -968,7 +1391,34 @@ def compile_line(api: dict, line: str):
         return f"item({s})"
 
     pieces = []
+    consumed_keys: set[str] = set()
     params = spec.get("params") or []
+
+    # VECTOR param aliases:
+    # support human-friendly keys `vector`, `vector2`, ... (and legacy `arg`, `arg2`, ...)
+    # regardless of how params are named in api_aliases.
+    if isinstance(kv, dict) and isinstance(params, list) and params:
+        vector_params = [p for p in params if str(p.get("mode") or "").upper() == "VECTOR"]
+        if vector_params:
+            ordered = sorted(vector_params, key=lambda p: int(p.get("slot") or 0))
+            for idx, p in enumerate(ordered, start=1):
+                pname = str(p.get("name") or "")
+                if not pname or pname in kv:
+                    continue
+
+                suffix = "" if idx == 1 else str(idx)
+                candidates = [
+                    f"vector{suffix}",
+                    f"vec{suffix}",
+                    f"vektor{suffix}",
+                    f"вектор{suffix}",
+                    f"arg{suffix}",
+                ]
+                for cand in candidates:
+                    if cand in kv:
+                        kv[pname] = kv[cand]
+                        consumed_keys.add(cand)
+                        break
 
     def _is_fill_region_action(_module: str, _spec: dict) -> bool:
         if (_module or "").strip().lower() != "game":
@@ -976,15 +1426,23 @@ def compile_line(api: dict, line: str):
         s2 = strip_colors(_spec.get("sign2", "")).strip().lower()
         return s2 == "заполнить область"
 
+    def _is_loop_control_action(_module: str, _spec: dict) -> bool:
+        if (_module or "").strip().lower() != "game":
+            return False
+        s2 = strip_colors(_spec.get("sign2", "")).strip().lower()
+        return s2 in {"начать цикл", "остановить цикл"}
+
     # Action sugar: "Заполнить область" (fill region with blocks)
     # API param list is usually: value(ANY), loc(LOCATION), loc2(LOCATION), num(NUMBER)
-    # In practice, `value` is a block item placed into the yellow "item/block" glass slot.
+    # Keep emitted payload mode-driven (ANY stays raw) to avoid compiler-side
+    # coercion that can break runtime argument parsing.
     if _is_fill_region_action(module, spec):
         # Allow friendlier keyword aliases for the block argument.
         if "value" not in kv:
             for k in ("block", "blok", "блок", "block_id", "id", "item", "предмет"):
                 if k in kv and kv[k]:
                     kv["value"] = kv[k]
+                    consumed_keys.add(k)
                     break
 
     # Heuristic: "Выдать предметы" takes items from a chest, but the GUI has no marker glass.
@@ -994,6 +1452,12 @@ def compile_line(api: dict, line: str):
         s2 = strip_colors(spec.get("sign2", "")).strip().lower()
         if s1 == "действие игрока" and s2 == "выдать предметы":
             count_kw = kv.get("количество") or kv.get("count") or kv.get("amount")
+            if "количество" in kv:
+                consumed_keys.add("количество")
+            if "count" in kv:
+                consumed_keys.add("count")
+            if "amount" in kv:
+                consumed_keys.add("amount")
             items = []
             # Positional tokens are treated as items.
             for t in pos or []:
@@ -1001,6 +1465,7 @@ def compile_line(api: dict, line: str):
             # Also allow explicit named parameter.
             for k in ("item", "items", "предмет", "предметы"):
                 if k in kv and kv[k]:
+                    consumed_keys.add(k)
                     items.append(_wrap_item_token(kv[k]))
             if count_kw is not None:
                 raise ValueError(
@@ -1032,11 +1497,20 @@ def compile_line(api: dict, line: str):
         name = p["name"]
         if name not in kv:
             continue
-        # Special-case: fill-region expects a block item in ANY slot; wrap raw ids to item(...)
-        if _is_fill_region_action(module, spec) and (name == "value" or p.get("slot") == 13):
-            val = _wrap_item_token(kv[name])
+        consumed_keys.add(name)
+        mode = (p.get("mode") or "").upper()
+        raw_val = kv[name]
+        if _is_loop_control_action(module, spec) and mode == "TEXT":
+            rv = (raw_val or "").strip()
+            m_wrap = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(.*\)\s*$", rv)
+            if m_wrap:
+                val = rv
+            else:
+                if len(rv) >= 2 and ((rv[0] == '"' and rv[-1] == '"') or (rv[0] == "'" and rv[-1] == "'")):
+                    rv = rv[1:-1]
+                val = f"text({rv})"
         else:
-            val = wrap_value(p.get("mode"), kv[name])
+            val = wrap_value(mode, raw_val)
         pieces.append(f"slot({p['slot']})={val}")
 
     def _unquote_preserve_spaces(v: str) -> str:
@@ -1113,6 +1587,7 @@ def compile_line(api: dict, line: str):
         ename = e.get("name")
         if not ename or ename not in kv:
             continue
+        consumed_keys.add(ename)
         raw_token = kv[ename]
         raw_val = _unquote_preserve_spaces(raw_token)
         opts = e.get("options") or {}
@@ -1184,9 +1659,48 @@ def compile_line(api: dict, line: str):
         if int(clicks) > 0:
             pieces.append(f"clicks({e['slot']},{int(clicks)})=0")
 
+    # Fail fast on unknown named keys: catches typos in enum/param names instead of silent ignore.
+    if isinstance(kv, dict) and kv:
+        # Internal compiler compatibility: arithmetic helpers may emit generic
+        # num/num2/... keys even when api_aliases expose compact ANY_ARRAY names.
+        if (module or "").strip().lower() == "var":
+            c = (canon or "").strip().lower()
+            if c in {"set_sum", "set_product"}:
+                for k in kv.keys():
+                    if re.fullmatch(r"(num|num\d+|value|value\d+)", str(k), re.I):
+                        consumed_keys.add(str(k))
+            elif c in {"set_difference", "set_quotient"}:
+                for k in ("num", "num2", "value", "value1", "value2"):
+                    if k in kv:
+                        consumed_keys.add(k)
+        # Legacy compatibility: in some catalogs/tests `if_value.number`
+        # does not expose enum `tip_proverki`, but user scripts still pass it.
+        if (module or "").strip().lower() == "if_value" and (canon or "").strip().lower() == "number":
+            for k in ("tip_proverki", "tipproverki"):
+                if k in kv:
+                    consumed_keys.add(k)
+
+        for k in list(consumed_keys):
+            src = translit_src.get(k)
+            if src:
+                consumed_keys.add(src)
+        unknown_keys = [k for k in kv.keys() if k not in consumed_keys]
+        if unknown_keys:
+            known_params = [p.get("name") for p in (params or []) if p.get("name")]
+            known_enums = [e.get("name") for e in (spec.get("enums") or []) if e.get("name")]
+            raise ValueError(
+                f"{module}.{func}: неизвестные именованные аргументы/enum: {', '.join(map(str, unknown_keys))}. "
+                f"Параметры: {', '.join(map(str, known_params)) or '-'}; "
+                f"enum: {', '.join(map(str, known_enums)) or '-'}"
+            )
+
     return pieces, spec
 
 def compile_builtin(api: dict, line: str, func_sigs: dict[str, list[str]] | None = None, debug_stacks: bool = False):
+    # Builtin/sugar parser must not intercept canonical module calls.
+    # Those are handled by compile_line()/formula path.
+    if CALL_RE.match(line or ""):
+        return None
     m = BARE_CALL_RE.match(line)
     if not m or "." in (m.group(1) or ""):
         # assignment sugar doesn't look like a call
@@ -1201,9 +1715,18 @@ def compile_builtin(api: dict, line: str, func_sigs: dict[str, list[str]] | None
                 # Convert to normal assignment form handled below.
                 line = f"save {name} = {rhs}"
 
-        m_assign = ASSIGN_RE.match(line)
+        m_assign = ASSIGN_RE.match(line) if _has_top_level_assignment_operator(line) else None
         if not m_assign:
-            return None
+            if not _has_top_level_assignment_operator(line):
+                return None
+            # Dynamic assignment target support for placeholder-based variable names, e.g.:
+            #   __mn_row_%var(__mn_z)% += __mn_pix
+            # Keep this fallback narrow to avoid accidental capture of call syntax.
+            if "%var(" not in (line or "").lower():
+                return None
+            m_assign = ASSIGN_RE_DYNAMIC.match(line)
+            if not m_assign:
+                return None
 
         save_kw = (m_assign.group(1) or "").strip().lower()
         name = (m_assign.group(2) or "").strip()
@@ -1367,49 +1890,69 @@ def compile_builtin(api: dict, line: str, func_sigs: dict[str, list[str]] | None
                 "iftext",
                 "ifexists",
             }
+            wrapper_calls = {
+                "text",
+                "num",
+                "var",
+                "var_save",
+                "arr",
+                "arr_save",
+                "array",
+                "loc",
+                "item",
+                "apple",
+                "gamevalue",
+                "gameval",
+                "игровое_значение",
+                "яблоко",
+            }
             if fn and fn not in reserved:
-                # positional args only for now
-                if inside:
-                    args = split_args(inside)
+                # Wrapper forms (loc/item/text/num/...) are plain values, not function-return sugar.
+                if fn.lower() in wrapper_calls:
+                    m_call_expr = None
                 else:
-                    args = []
-                out = []
-                # push args (if any)
-                if args:
-                    out.extend(compile_push_args_stack(fn, args))
-                # 1) call(func) (sync)
-                spec_call = api.get("game", {}).get("call_function") or api.get("game", {}).get("вызвать_функцию")
-                if not spec_call:
-                    raise ValueError("Function call sugar failed: no call_function action in api")
-                out.append(([f"slot(13)=text({fn})"], spec_call))
-                if debug_stacks:
-                    res = compile_line(api, f"array.get_array_2(arr=arr({RET_STACK_NAME}), var=var({TMP_VAR_PREFIX}retlen_before))")
-                    if res:
-                        out.append(res)
-                    res = compile_line(api, f'player.message("DBG ret_len_before=%var({TMP_VAR_PREFIX}retlen_before)%")')
-                    if res:
-                        out.append(res)
-                # 2) read ret from __ret[top] into target var
-                target_var = wrap_var_target(name, saved)
-                res = compile_line(
-                    api, f"array.get_array(arr=arr({RET_STACK_NAME}), num=num({STACK_TOP_INDEX}), var={target_var})"
-                )
-                if not res:
-                    raise ValueError("return/pop: не найдено действие 'Получить элемент массива'")
-                out.append(res)
-                # 3) pop __ret[top]
-                res = compile_line(api, f"array.remove_array(arr=arr({RET_STACK_NAME}), num=num({STACK_TOP_INDEX}))")
-                if not res:
-                    raise ValueError("return/pop: не найдено действие 'Удалить элемент массива'")
-                out.append(res)
-                if debug_stacks:
-                    res = compile_line(api, f"array.get_array_2(arr=arr({RET_STACK_NAME}), var=var({TMP_VAR_PREFIX}retlen_after))")
-                    if res:
-                        out.append(res)
-                    res = compile_line(api, f'player.message("DBG ret_len_after=%var({TMP_VAR_PREFIX}retlen_after)%")')
-                    if res:
-                        out.append(res)
-                return out
+                # positional args only for now
+                    if inside:
+                        args = split_args(inside)
+                    else:
+                        args = []
+                    out = []
+                    # push args (if any)
+                    if args:
+                        out.extend(compile_push_args_stack(fn, args))
+                    # 1) call(func) (sync)
+                    spec_call = api.get("game", {}).get("call_function") or api.get("game", {}).get("вызвать_функцию")
+                    if not spec_call:
+                        raise ValueError("Function call sugar failed: no call_function action in api")
+                    out.append(([f"slot(13)=text({fn})"], spec_call))
+                    if debug_stacks:
+                        res = compile_line(api, f"array.get_array_2(arr=arr({RET_STACK_NAME}), var=var({TMP_VAR_PREFIX}retlen_before))")
+                        if res:
+                            out.append(res)
+                        res = compile_line(api, f'player.message("DBG ret_len_before=%var({TMP_VAR_PREFIX}retlen_before)%")')
+                        if res:
+                            out.append(res)
+                    # 2) read ret from __ret[top] into target var
+                    target_var = wrap_var_target(name, saved)
+                    res = compile_line(
+                        api, f"array.get_array(arr=arr({RET_STACK_NAME}), num=num({STACK_TOP_INDEX}), var={target_var})"
+                    )
+                    if not res:
+                        raise ValueError("return/pop: не найдено действие 'Получить элемент массива'")
+                    out.append(res)
+                    # 3) pop __ret[top]
+                    res = compile_line(api, f"array.remove_array(arr=arr({RET_STACK_NAME}), num=num({STACK_TOP_INDEX}))")
+                    if not res:
+                        raise ValueError("return/pop: не найдено действие 'Удалить элемент массива'")
+                    out.append(res)
+                    if debug_stacks:
+                        res = compile_line(api, f"array.get_array_2(arr=arr({RET_STACK_NAME}), var=var({TMP_VAR_PREFIX}retlen_after))")
+                        if res:
+                            out.append(res)
+                        res = compile_line(api, f'player.message("DBG ret_len_after=%var({TMP_VAR_PREFIX}retlen_after)%")')
+                        if res:
+                            out.append(res)
+                    return out
 
         # Determine RHS
         rhs_wrapped = rhs
@@ -1434,6 +1977,11 @@ def compile_builtin(api: dict, line: str, func_sigs: dict[str, list[str]] | None
                     prefix = rhs_wrapped.split("(", 1)[0]
                     if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", prefix or ""):
                         is_func_like = True
+                        # Runtime compatibility: assignment of loc(...) must be normalized
+                        # the same way as LOCATION args (paper item payload), otherwise
+                        # printers may place literal loc(...) text.
+                        if (prefix or "").lower() == "loc":
+                            rhs_wrapped = wrap_value("LOCATION", rhs_wrapped)
                 if not is_func_like:
                     rhs_wrapped = f"text({rhs_wrapped})"
 
@@ -1456,6 +2004,23 @@ def compile_builtin(api: dict, line: str, func_sigs: dict[str, list[str]] | None
             rhs_wrapped = f"var({(name_map or {}).get(node.id, node.id)})"
 
         if op in {"+", "-", "*", "/"}:
+            # Dynamic placeholder variable names (e.g. __mn_row_%var(__mn_z)%)
+            # are not valid Python identifiers, so AST-based numeric lowering
+            # can't represent `name op rhs`. Use direct arithmetic actions.
+            if "%var(" in name.lower():
+                lhs_var = wrap_var_target(name, saved)
+                rhs_any = wrap_any_value(rhs)
+                if op == "+":
+                    res = compile_line(api, f"var.set_sum(var={lhs_var}, num={lhs_var}, num2={rhs_any})")
+                elif op == "-":
+                    res = compile_line(api, f"var.set_difference(var={lhs_var}, num={lhs_var}, num2={rhs_any})")
+                elif op == "*":
+                    res = compile_line(api, f"var.set_product(var={lhs_var}, num={lhs_var}, num2={rhs_any})")
+                else:
+                    res = compile_line(api, f"var.set_quotient(var={lhs_var}, num={lhs_var}, num2={rhs_any})")
+                if not res:
+                    raise ValueError(f"assignment '{op}=' failed for dynamic target: {name}")
+                return [res]
             # Augmented assignment sugar: x += y, x -= y, x *= y, x /= y.
             aug_expr = f"{name} {op} ({rhs})"
             aug_expr_s, aug_map = preprocess_numeric_expr(aug_expr)
@@ -1492,7 +2057,16 @@ def compile_builtin(api: dict, line: str, func_sigs: dict[str, list[str]] | None
         for v in kv.values():
             if v:
                 names.append(v)
-        cleaned = [n.strip() for n in names if n and n.strip()]
+        cleaned = []
+        for n in names:
+            s = (n or "").strip()
+            if not s:
+                continue
+            # Loop names are plain labels; quoted input should not include quote chars
+            # in the resulting server text item.
+            if len(s) >= 2 and ((s[0] == '"' and s[-1] == '"') or (s[0] == "'" and s[-1] == "'")):
+                s = s[1:-1]
+            cleaned.append(s)
         if not cleaned:
             raise ValueError(f"{name}()(): expected at least 1 cycle name")
 
@@ -1562,13 +2136,18 @@ def compile_builtin(api: dict, line: str, func_sigs: dict[str, list[str]] | None
             raise ValueError("call(): no call_function action in api")
         return [(pieces, res)]
 
-    # Sugar: hello() -> call(hello)
-    reserved = loop_starters | loop_stoppers | call_aliases | {"event", "func", "function", "def", "loop", "цикл", "функция"}
-    if name and name not in reserved:
-        kv, pos = parse_call_args(arg_str)
-        async_flag = False
-        if "async" in kv:
-            async_flag = parse_bool(kv.pop("async"))
+        # Sugar: hello() -> call(hello)
+        reserved = loop_starters | loop_stoppers | call_aliases | {"event", "func", "function", "def", "loop", "цикл", "функция"}
+        if name and name not in reserved:
+            # Be strict: implicit `foo()` -> `call(foo)` is allowed only for known
+            # user functions collected from this source (func signatures).
+            # Unknown call-like names should be reported by the main compiler loop.
+            if func_sigs is None or name not in func_sigs:
+                return None
+            kv, pos = parse_call_args(arg_str)
+            async_flag = False
+            if "async" in kv:
+                async_flag = parse_bool(kv.pop("async"))
 
         if kv:
             raise ValueError(f"{name}(): пока поддерживаются только позиционные аргументы (без key=value)")
@@ -1650,6 +2229,13 @@ def compile_numeric_expression(
         return f"__mlcc_tmp{tmp_counter}"
 
     def ensure_value(node) -> str:
+        # Constant numeric subtree: emit direct number token, no temp actions.
+        raw_const = ast.unparse(node) if hasattr(ast, "unparse") else ""
+        v_const = safe_eval_number_expr(raw_const)
+        if v_const is not None:
+            if abs(v_const - int(v_const)) < 1e-9:
+                return f"num({int(v_const)})"
+            return f"num({v_const})"
         # If node is a leaf, return operand token.
         if isinstance(node, (ast.Constant, ast.Name)):
             return expr_to_operand(node, name_map=name_map)
@@ -1668,6 +2254,14 @@ def compile_numeric_expression(
 
     def compile_into(target_tok: str, node):
         nonlocal actions
+        # Whole constant numeric expression: single set_value.
+        raw_const = ast.unparse(node) if hasattr(ast, "unparse") else ""
+        v_const = safe_eval_number_expr(raw_const)
+        if v_const is not None:
+            val = f"num({int(v_const) if abs(v_const-int(v_const))<1e-9 else v_const})"
+            actions.append(compile_line(api, f"var.set_value(var={target_tok}, value={val})"))
+            return
+
         if isinstance(node, (ast.Constant, ast.Name)):
             actions.append(
                 compile_line(api, f"var.set_value(var={target_tok}, value={expr_to_operand(node, name_map=name_map)})")
@@ -1675,10 +2269,16 @@ def compile_numeric_expression(
             return
 
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            raw_unary = ast.unparse(node) if hasattr(ast, "unparse") else ""
+            v_unary = safe_eval_number_expr(raw_unary)
+            if v_unary is not None:
+                val = f"num({int(v_unary) if abs(v_unary-int(v_unary))<1e-9 else v_unary})"
+                actions.append(compile_line(api, f"var.set_value(var={target_tok}, value={val})"))
+                return
             if isinstance(node.op, ast.UAdd):
                 compile_into(target_tok, node.operand)
                 return
-            # -(expr) => expr * -1
+            # Non-constant unary minus (e.g. -x) => x * -1
             operand = ensure_value(node.operand)
             actions.extend(compile_op_action(api, "set_product", target_tok, [operand, "num(-1)"]))
             return
@@ -1748,12 +2348,17 @@ def build_placeadvanced_command(
     return cmd
 
 def compile_entries(path: Path) -> list[dict]:
+    # TEMP DEBUG (remove after root-cause): deep pipeline trace
+    _compile_dbg(f"compile_entries.start path={path}")
     api = load_api()
     sign1_aliases = load_sign1_aliases()
     blocks = load_allactions_map()
     known_events = load_known_events()
     # Debug-only: can be wired to CLI later.
     debug_stacks = False
+    _compile_dbg(
+        f"loaded api_modules={len(api)} sign1_aliases={len(sign1_aliases)} blocks={len(blocks)} known_events={len(known_events)}"
+    )
 
     def norm_ident(s: str) -> str:
         s = strip_colors(s or "").lower()
@@ -1774,6 +2379,18 @@ def compile_entries(path: Path) -> list[dict]:
         if not m:
             return False, src_line
         return True, (m.group(1) or "").strip()
+
+    def _report_unresolved_line(*, idx: int, raw_line: str, in_scope: bool):
+        msg = (
+            f"line {idx}: нераспознанная строка"
+            f"{' внутри блока' if in_scope else ''}: `{raw_line}`. "
+            "Возможные причины: опечатка в module.action, неверный синтаксис аргументов "
+            "или вызов несуществующей функции."
+        )
+        if _strict_unknown_enabled():
+            raise ValueError(msg)
+        if _warn_unknown_enabled():
+            print(f"[warn] {msg}", file=__import__('sys').stderr)
 
     def compile_action_tuple(module: str, func: str, arg_str: str = "") -> tuple[str, str, str]:
         res = compile_line(api, f"{module}.{func}({arg_str})")
@@ -2043,6 +2660,7 @@ def compile_entries(path: Path) -> list[dict]:
                 if start_re.match(st):
                     delta = _paren_balance_delta(s)
                     if delta > 0:
+                        _compile_dbg(f"normalize_multiline.start delta={delta} line={st[:120]}")
                         collecting = True
                         call_indent = _line_indent(s)
                         parts = [st]
@@ -2056,6 +2674,7 @@ def compile_entries(path: Path) -> list[dict]:
             balance += _paren_balance_delta(s)
             if balance <= 0:
                 normalized = call_indent + " ".join(p for p in parts if p)
+                _compile_dbg(f"normalize_multiline.done size={len(normalized)} parts={len(parts)}")
                 # If a limit is configured, keep one char budget for the closing '}' token.
                 if limit is not None and len(normalized) > (limit - 1):
                     raise ValueError(
@@ -2070,6 +2689,126 @@ def compile_entries(path: Path) -> list[dict]:
 
         if collecting:
             raise ValueError("multiline call: missing closing `)`")
+        return out
+
+    def _split_top_level_semicolons(text: str) -> list[str]:
+        out: list[str] = []
+        buf: list[str] = []
+        in_str = False
+        quote = ""
+        paren = brace = bracket = 0
+        i = 0
+        while i < len(text):
+            ch = text[i]
+            if in_str:
+                buf.append(ch)
+                if ch == quote and (i == 0 or text[i - 1] != "\\"):
+                    in_str = False
+                i += 1
+                continue
+            if ch in ('"', "'"):
+                in_str = True
+                quote = ch
+                buf.append(ch)
+                i += 1
+                continue
+            if ch == "(":
+                paren += 1
+            elif ch == ")":
+                paren = max(0, paren - 1)
+            elif ch == "{":
+                brace += 1
+            elif ch == "}":
+                brace = max(0, brace - 1)
+            elif ch == "[":
+                bracket += 1
+            elif ch == "]":
+                bracket = max(0, bracket - 1)
+            if ch == ";" and paren == 0 and brace == 0 and bracket == 0:
+                seg = "".join(buf).strip()
+                if seg:
+                    out.append(seg)
+                buf = []
+                i += 1
+                continue
+            buf.append(ch)
+            i += 1
+        tail = "".join(buf).strip()
+        if tail:
+            out.append(tail)
+        return out
+
+    def _split_compound_inline_chunk(chunk: str) -> list[str]:
+        s = (chunk or "").strip()
+        if not s:
+            return []
+        semis = _split_top_level_semicolons(s)
+        if len(semis) > 1:
+            return semis
+        # Fallback for compact inline bodies without semicolons:
+        # "__mn_x = 0 __mn_z += 1", "a=1 player.msg(text=a)"
+        split_rx = re.compile(
+            rf"\s+(?=(?:save\s+)?{NAME_RE}\s*(?:~\s*)?(?:[+\-*/]\s*)?=|(?:{NAME_RE}\.)+{NAME_RE}\s*\()",
+            re.I,
+        )
+        parts = [p.strip() for p in split_rx.split(s) if p.strip()]
+        return parts if parts else [s]
+
+    def expand_inline_blocks(src_lines: list[str]) -> list[str]:
+        out: list[str] = []
+        for raw in src_lines:
+            line = str(raw or "")
+            in_str = False
+            quote = ""
+            paren = brace = bracket = 0
+            open_idx = -1
+            close_idx = -1
+            for i, ch in enumerate(line):
+                if in_str:
+                    if ch == quote and (i == 0 or line[i - 1] != "\\"):
+                        in_str = False
+                    continue
+                if ch in ('"', "'"):
+                    in_str = True
+                    quote = ch
+                    continue
+                if ch == "(":
+                    paren += 1
+                    continue
+                if ch == ")":
+                    paren = max(0, paren - 1)
+                    continue
+                if ch == "[":
+                    bracket += 1
+                    continue
+                if ch == "]":
+                    bracket = max(0, bracket - 1)
+                    continue
+                if ch == "{" and paren == 0 and brace == 0 and bracket == 0 and open_idx < 0:
+                    open_idx = i
+                    brace += 1
+                    continue
+                if ch == "{" and open_idx >= 0:
+                    brace += 1
+                    continue
+                if ch == "}" and open_idx >= 0:
+                    brace = max(0, brace - 1)
+                    if brace == 0:
+                        close_idx = i
+                        break
+            if open_idx > 0 and close_idx > open_idx:
+                before = line[:open_idx].rstrip()
+                inside = line[open_idx + 1 : close_idx].strip()
+                after = line[close_idx + 1 :].strip()
+                if before and inside and not after:
+                    indent_m = re.match(r"^\s*", line)
+                    indent = indent_m.group(0) if indent_m else ""
+                    out.append(before + " {")
+                    for stmt in _split_compound_inline_chunk(inside):
+                        out.append(indent + "    " + stmt)
+                    out.append(indent + "}")
+                    continue
+            out.append(line)
         return out
 
     def _parse_vfunc_params(raw: str, name: str) -> tuple[list[str], dict[str, str]]:
@@ -2440,10 +3179,17 @@ def compile_entries(path: Path) -> list[dict]:
         return out
 
     lines, imported_namespaces = load_with_imports(path)
+    _compile_dbg(f"stage.imports lines={len(lines)} namespaces={len(imported_namespaces)}")
     lines = normalize_multiline_calls(lines)
+    _compile_dbg(f"stage.normalize_multiline lines={len(lines)}")
+    lines = expand_inline_blocks(lines)
+    _compile_dbg(f"stage.expand_inline_blocks lines={len(lines)}")
     lines, vfunc_defs = collect_vfunc_defs(lines)
+    _compile_dbg(f"stage.collect_vfunc lines={len(lines)} vfunc_defs={len(vfunc_defs)}")
     lines = expand_vfunc_calls(lines, vfunc_defs)
+    _compile_dbg(f"stage.expand_vfunc lines={len(lines)}")
     lines = expand_multiselect_blocks(lines)
+    _compile_dbg(f"stage.expand_multiselect lines={len(lines)}")
 
     # Collect function signatures (name -> param list) in advance so calls can be validated
     # even if the function is declared later in the file.
@@ -2466,6 +3212,7 @@ def compile_entries(path: Path) -> list[dict]:
                     raise ValueError(f"func {fname}(): недопустимое имя параметра: {pn}")
                 params.append(pn)
         func_sigs[fname] = params
+    _compile_dbg(f"stage.collect_funcs func_defs={len(func_sigs)}")
     for vname in vfunc_defs.keys():
         if vname in func_sigs:
             raise ValueError(f"name conflict: `{vname}` defined as both func and vfunc")
@@ -2561,7 +3308,9 @@ def compile_entries(path: Path) -> list[dict]:
             if a[0] == "skip" and stack:
                 op = stack.pop()
                 # scope body must be non-empty
-                if idx - op >= 2:
+                # Require at least 2 body actions so replacement with a single call()
+                # makes real progress and cannot loop forever.
+                if idx - op >= 3:
                     candidates.append((op, idx))
         if not candidates:
             return None
@@ -2586,6 +3335,9 @@ def compile_entries(path: Path) -> list[dict]:
         nonlocal auto_func_counter
         if not current_kind:
             return
+        _compile_dbg(
+            f"flush_block.start kind={current_kind} name={current_name or '-'} actions={len(current_actions)} safe_boundaries={len(current_safe_boundaries)} if_depth_max={(max(current_if_depths) if current_if_depths else 0)}"
+        )
         pending_extracted_helpers: list[tuple[str, list[tuple]]] = []
 
         def to_tuple(res):
@@ -2616,6 +3368,8 @@ def compile_entries(path: Path) -> list[dict]:
                 auto_func_counter += 1
                 if name not in used_func_names:
                     used_func_names.add(name)
+                    if auto_func_counter <= 20 or (auto_func_counter % 100 == 0):
+                        _autosplit_dbg(f"alloc_name={name} next_counter={auto_func_counter}")
                     return name
 
         def build_call_action_tuple(func_name: str) -> tuple:
@@ -2750,8 +3504,11 @@ def compile_entries(path: Path) -> list[dict]:
         # event: 42 actions + call(helper_1)
         # helper_1: 42 actions + call(helper_2), etc.
         # This keeps a leading block header for each row chunk.
-        if current_kind == "event" and len(current_actions) > MAX_ACTIONS_PER_ROW:
+        if current_kind == "event" and len(current_actions) > (MAX_ACTIONS_PER_ROW - 1):
             ev_name = (current_name or "").strip() or "event"
+            _autosplit_dbg(
+                f"event_split_start name={ev_name} actions={len(current_actions)} max_payload={MAX_ACTIONS_PER_ROW - 1}"
+            )
             block_kind = "event"
             block_name = current_name
             block_ticks = current_loop_ticks
@@ -2759,18 +3516,31 @@ def compile_entries(path: Path) -> list[dict]:
             if_depths_left = list(current_if_depths)
             boundaries_left = list(current_safe_boundaries)
             split_num = 0
-            while len(actions_left) > MAX_ACTIONS_PER_ROW:
+            while len(actions_left) > (MAX_ACTIONS_PER_ROW - 1):
                 split_num += 1
+                if split_num > AUTO_SPLIT_MAX_ITERS:
+                    raise ValueError(
+                        f"row auto-split runaway (event `{ev_name}`): split_num={split_num} left={len(actions_left)} max_iters={AUTO_SPLIT_MAX_ITERS}"
+                    )
                 next_func_name = alloc_auto_func_name()
+                _autosplit_dbg(
+                    f"event_split_iter name={ev_name} split_num={split_num} left={len(actions_left)} next={next_func_name}"
+                )
                 candidates: list[tuple[int, tuple[str, str, str] | None, int, tuple[str, str, str] | None]] = []
                 for pos, sel_state in boundaries_left:
                     if pos <= 0 or pos >= len(actions_left):
                         continue
                     restore_sel = sel_state if (sel_state is not None and sel_state != DEFAULT_SELECT_PLAYER) else None
                     extra = 1 + (1 if restore_sel is not None else 0)
-                    if pos + extra <= MAX_ACTIONS_PER_ROW:
+                    # Physical row budget includes leading header block.
+                    # Keep one slot reserved for header -> max payload actions is (MAX_ACTIONS_PER_ROW - 1).
+                    if pos + extra <= (MAX_ACTIONS_PER_ROW - 1):
                         candidates.append((pos, sel_state, extra, restore_sel))
                 if not candidates:
+                    _autosplit_dbg(
+                        f"event_no_candidates name={ev_name} split_num={split_num} left={len(actions_left)}"
+                    )
+                    _prev_len = len(actions_left)
                     extracted = _try_extract_if_scope_to_helper(actions_left, build_call_action_tuple(next_func_name))
                     if extracted is None:
                         raise ValueError(
@@ -2778,7 +3548,15 @@ def compile_entries(path: Path) -> list[dict]:
                             f"cannot split inside open scopes. Refactor by extracting inner block into a helper func/vfunc."
                         )
                     actions_left, helper_body = extracted
+                    if len(actions_left) >= _prev_len:
+                        raise ValueError(
+                            f"row auto-split: `{ev_name}` extraction made no progress ({_prev_len} -> {len(actions_left)}). "
+                            f"Refactor nested scope manually or simplify condition body."
+                        )
                     pending_extracted_helpers.append((next_func_name, helper_body))
+                    _autosplit_dbg(
+                        f"event_extracted_helper name={ev_name} helper={next_func_name} helper_actions={len(helper_body)} left_after={len(actions_left)}"
+                    )
                     if_depths_left = _calc_if_depths(actions_left)
                     boundaries_left = _calc_safe_boundaries(actions_left)
                     print(
@@ -2789,6 +3567,9 @@ def compile_entries(path: Path) -> list[dict]:
                     continue
                 pos, sel_state, _extra, restore_sel = max(
                     candidates, key=lambda t: (t[0], 1 if t[1] is None else 0)
+                )
+                _autosplit_dbg(
+                    f"event_pick_candidate name={ev_name} split_num={split_num} pos={pos} candidates={len(candidates)}"
                 )
                 chunk = actions_left[:pos]
                 chunk_if_depths = if_depths_left[:pos]
@@ -2835,24 +3616,38 @@ def compile_entries(path: Path) -> list[dict]:
             )
         # For long functions, use the same call-chain splitting strategy as events.
         # Avoid relying on repeated same-name function headers across newline rows.
-        elif current_kind == "func" and len(current_actions) > MAX_ACTIONS_PER_ROW:
+        elif current_kind == "func" and len(current_actions) > (MAX_ACTIONS_PER_ROW - 1):
             func_name = (current_name or "").strip() or "func"
+            _autosplit_dbg(
+                f"func_split_start name={func_name} actions={len(current_actions)} max_payload={MAX_ACTIONS_PER_ROW - 1}"
+            )
             block_name = current_name
             actions_left = list(current_actions)
             if_depths_left = list(current_if_depths)
             boundaries_left = list(current_safe_boundaries)
             split_num = 0
-            while len(actions_left) > MAX_ACTIONS_PER_ROW:
+            while len(actions_left) > (MAX_ACTIONS_PER_ROW - 1):
                 split_num += 1
+                if split_num > AUTO_SPLIT_MAX_ITERS:
+                    raise ValueError(
+                        f"row auto-split runaway (func `{func_name}`): split_num={split_num} left={len(actions_left)} max_iters={AUTO_SPLIT_MAX_ITERS}"
+                    )
                 next_func_name = alloc_auto_func_name()
+                _autosplit_dbg(
+                    f"func_split_iter name={func_name} split_num={split_num} left={len(actions_left)} next={next_func_name}"
+                )
                 candidates: list[int] = []
                 for pos, _sel_state in boundaries_left:
                     if pos <= 0 or pos >= len(actions_left):
                         continue
-                    # +1 for call(next_func)
-                    if pos + 1 <= MAX_ACTIONS_PER_ROW:
+                    # +1 for call(next_func); reserve one slot for row header.
+                    if pos + 1 <= (MAX_ACTIONS_PER_ROW - 1):
                         candidates.append(pos)
                 if not candidates:
+                    _autosplit_dbg(
+                        f"func_no_candidates name={func_name} split_num={split_num} left={len(actions_left)}"
+                    )
+                    _prev_len = len(actions_left)
                     extracted = _try_extract_if_scope_to_helper(actions_left, build_call_action_tuple(next_func_name))
                     if extracted is None:
                         raise ValueError(
@@ -2860,7 +3655,15 @@ def compile_entries(path: Path) -> list[dict]:
                             f"cannot split inside open scopes. Refactor by extracting inner block into a helper func/vfunc."
                         )
                     actions_left, helper_body = extracted
+                    if len(actions_left) >= _prev_len:
+                        raise ValueError(
+                            f"row auto-split: `{func_name}` extraction made no progress ({_prev_len} -> {len(actions_left)}). "
+                            f"Refactor nested scope manually or simplify condition body."
+                        )
                     pending_extracted_helpers.append((next_func_name, helper_body))
+                    _autosplit_dbg(
+                        f"func_extracted_helper name={func_name} helper={next_func_name} helper_actions={len(helper_body)} left_after={len(actions_left)}"
+                    )
                     if_depths_left = _calc_if_depths(actions_left)
                     boundaries_left = _calc_safe_boundaries(actions_left)
                     print(
@@ -2870,6 +3673,9 @@ def compile_entries(path: Path) -> list[dict]:
                     split_num -= 1
                     continue
                 pos = max(candidates)
+                _autosplit_dbg(
+                    f"func_pick_candidate name={func_name} split_num={split_num} pos={pos} candidates={len(candidates)}"
+                )
                 chunk = actions_left[:pos]
                 chunk_if_depths = if_depths_left[:pos]
                 actions_left = actions_left[pos:]
@@ -2910,20 +3716,114 @@ def compile_entries(path: Path) -> list[dict]:
             )
 
         # Emit extracted helper functions created by scope-preserving autosplit.
-        for helper_name, helper_actions in pending_extracted_helpers:
+        # Helpers can still exceed payload budget, so apply the same function call-chain split strategy.
+        helper_queue: list[tuple[str, list[tuple]]] = list(pending_extracted_helpers)
+        if helper_queue:
+            _autosplit_dbg(
+                f"helper_queue_start count={len(helper_queue)} names={','.join(n for n, _ in helper_queue[:5])}"
+            )
+        while helper_queue:
+            helper_name, helper_actions = helper_queue.pop(0)
+            _autosplit_dbg(
+                f"helper_process name={helper_name} actions={len(helper_actions)} queue_left={len(helper_queue)}"
+            )
             if entries and entries[-1].get("block") != "newline":
                 entries.append({"block": "newline"})
-            if len(helper_actions) > MAX_ACTIONS_PER_ROW:
-                raise ValueError(
-                    f"row auto-split: extracted helper `{helper_name}` has {len(helper_actions)} actions (> {MAX_ACTIONS_PER_ROW}); "
-                    f"please refactor source block manually"
+
+            if len(helper_actions) <= (MAX_ACTIONS_PER_ROW - 1):
+                emit_block_header("func", helper_name, None)
+                emit_action_rows(
+                    helper_actions,
+                    warn_context=f"func `{helper_name}`",
+                    continuation_header=make_header("func", helper_name, None),
+                    action_if_depths=_calc_if_depths(helper_actions),
+                    reserve_implicit_if_closers=False,
                 )
-            emit_block_header("func", helper_name, None)
+                continue
+
+            actions_left = list(helper_actions)
+            if_depths_left = _calc_if_depths(actions_left)
+            boundaries_left = _calc_safe_boundaries(actions_left)
+            block_name = helper_name
+            split_num = 0
+            while len(actions_left) > (MAX_ACTIONS_PER_ROW - 1):
+                split_num += 1
+                if split_num > AUTO_SPLIT_MAX_ITERS:
+                    raise ValueError(
+                        f"row auto-split runaway (helper `{helper_name}`): split_num={split_num} left={len(actions_left)} max_iters={AUTO_SPLIT_MAX_ITERS}"
+                    )
+                next_func_name = alloc_auto_func_name()
+                _autosplit_dbg(
+                    f"helper_split_iter root={helper_name} block={block_name} split_num={split_num} left={len(actions_left)} next={next_func_name}"
+                )
+                candidates: list[int] = []
+                for pos, _sel_state in boundaries_left:
+                    if pos <= 0 or pos >= len(actions_left):
+                        continue
+                    if pos + 1 <= (MAX_ACTIONS_PER_ROW - 1):
+                        candidates.append(pos)
+                if not candidates:
+                    _autosplit_dbg(
+                        f"helper_no_candidates root={helper_name} block={block_name} split_num={split_num} left={len(actions_left)}"
+                    )
+                    _prev_len = len(actions_left)
+                    extracted = _try_extract_if_scope_to_helper(actions_left, build_call_action_tuple(next_func_name))
+                    if extracted is None:
+                        raise ValueError(
+                            f"row auto-split: extracted helper `{helper_name}` still has no safe top-level split point within {MAX_ACTIONS_PER_ROW} actions; "
+                            f"cannot split inside open scopes. Refactor source block manually."
+                        )
+                    actions_left, nested_helper_body = extracted
+                    if len(actions_left) >= _prev_len:
+                        raise ValueError(
+                            f"row auto-split: extracted helper `{helper_name}` made no progress ({_prev_len} -> {len(actions_left)}). "
+                            f"Refactor source block manually."
+                        )
+                    helper_queue.insert(0, (next_func_name, nested_helper_body))
+                    _autosplit_dbg(
+                        f"helper_nested_extracted root={helper_name} nested={next_func_name} nested_actions={len(nested_helper_body)}"
+                    )
+                    if_depths_left = _calc_if_depths(actions_left)
+                    boundaries_left = _calc_safe_boundaries(actions_left)
+                    split_num -= 1
+                    print(
+                        f"[warn] row auto-split: extracted helper `{helper_name}` nested extraction -> call({next_func_name})",
+                        file=__import__("sys").stderr,
+                    )
+                    continue
+
+                pos = max(candidates)
+                _autosplit_dbg(
+                    f"helper_pick_candidate root={helper_name} block={block_name} split_num={split_num} pos={pos} candidates={len(candidates)}"
+                )
+                chunk = actions_left[:pos]
+                chunk_if_depths = if_depths_left[:pos]
+                actions_left = actions_left[pos:]
+                if_depths_left = if_depths_left[pos:]
+                boundaries_left = [(p - pos, s) for p, s in boundaries_left if p > pos]
+                chunk.append(build_call_action_tuple(next_func_name))
+                chunk_if_depths.append(0)
+                print(
+                    f"[warn] row auto-split: extracted helper `{helper_name}` part#{split_num} -> call({next_func_name})",
+                    file=__import__("sys").stderr,
+                )
+                emit_block_header("func", block_name, None)
+                emit_action_rows(
+                    chunk,
+                    warn_context=f"func `{block_name or ''}`",
+                    continuation_header=make_header("func", block_name, None),
+                    action_if_depths=chunk_if_depths,
+                    reserve_implicit_if_closers=False,
+                )
+                entries.append({"block": "newline"})
+                block_name = next_func_name
+
+            emit_block_header("func", block_name, None)
             emit_action_rows(
-                helper_actions,
-                warn_context=f"func `{helper_name}`",
-                continuation_header=make_header("func", helper_name, None),
-                action_if_depths=_calc_if_depths(helper_actions),
+                actions_left,
+                warn_context=f"func `{block_name or ''}`",
+                continuation_header=make_header("func", block_name, None),
+                action_if_depths=if_depths_left,
                 reserve_implicit_if_closers=False,
             )
 
@@ -2935,6 +3835,7 @@ def compile_entries(path: Path) -> list[dict]:
         current_func_has_return = False
         current_safe_boundaries = []
         current_if_depths = []
+        _compile_dbg(f"flush_block.end entries={len(entries)} auto_func_counter={auto_func_counter}")
 
     def begin_new_row():
         # split rows by inserting a newline marker between blocks
@@ -2943,8 +3844,123 @@ def compile_entries(path: Path) -> list[dict]:
 
     tmp_counter = 0
 
-    for raw in lines:
+    def _append_compiled_action(pieces: list[str], spec: dict, *, negated: bool = False):
+        args_str = ",".join(pieces) if pieces else "no"
+        sign1 = strip_colors(spec.get("sign1", "")).strip()
+        sign2 = spec_menu_name(spec)
+        menu = strip_colors(spec.get("menu", "")).strip()
+        sign1_norm = norm_key(sign1)
+        if sign1_norm in sign1_aliases:
+            sign1_norm = norm_key(sign1_aliases[sign1_norm])
+        block = blocks.get(sign1_norm)
+        if not block:
+            raise ValueError(
+                f"Unknown block for sign1='{sign1}' (norm='{sign1_norm}'). Add to allactions.txt or Aliases.json"
+            )
+        block_tok = block.replace("minecraft:", "")
+        expected_sign2 = strip_colors(spec.get("sign2", "")).strip() or strip_colors(spec.get("gui", "")).strip()
+        StringName = sign2
+        if expected_sign2:
+            StringName = f"{(menu or sign2)}||{expected_sign2}"
+        if negated:
+            append_action((block_tok, StringName, args_str, True))
+        else:
+            append_action((block_tok, StringName, args_str))
+
+    def _compile_call_with_arg_formulas(src_line: str) -> list[tuple[list[str], dict]] | None:
+        nonlocal tmp_counter
+        m_call = CALL_RE.match(src_line or "")
+        if not m_call:
+            return None
+
+        module, func, arg_str = m_call.group(1), m_call.group(2), m_call.group(3)
+        _canon, spec = find_action(api, module, func)
+        if not spec:
+            return None
+
+        params = spec.get("params") or []
+        if not params:
+            return None
+
+        kv, pos = parse_call_args(arg_str)
+        if kv:
+            kv = {k: v for k, v in kv.items() if (v or "").strip() != ""}
+        kv_resolved: dict[str, str] = dict(kv or {})
+
+        for idx, raw in enumerate(pos or []):
+            if idx >= len(params):
+                break
+            pname = params[idx]["name"]
+            if pname not in kv_resolved:
+                kv_resolved[pname] = raw
+
+        def _is_quoted(s: str) -> bool:
+            t = (s or "").strip()
+            return len(t) >= 2 and ((t[0] == '"' and t[-1] == '"') or (t[0] == "'" and t[-1] == "'"))
+
+        def _is_explicit_wrapper(s: str) -> bool:
+            t = (s or "").strip()
+            return re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*\s*\(.*\)$", t) is not None
+
+        compiled_prefix: list[tuple[list[str], dict]] = []
+        changed = False
+        for p in params:
+            pname = p.get("name")
+            if not pname or pname not in kv_resolved:
+                continue
+            mode = (p.get("mode") or "").upper()
+            if mode not in {"NUMBER", "TEXT", "ANY"}:
+                continue
+            raw_val = (kv_resolved.get(pname) or "").strip()
+            if not raw_val or _is_quoted(raw_val) or _is_explicit_wrapper(raw_val):
+                continue
+
+            expr_s, name_map = preprocess_numeric_expr(raw_val)
+            try:
+                node = ast.parse(expr_s, mode="eval").body
+            except Exception:
+                continue
+            if not is_supported_numeric_expr_ast(node):
+                continue
+            if not isinstance(node, (ast.BinOp, ast.UnaryOp)):
+                continue
+
+            tmp_counter += 1
+            tmp_name = f"{TMP_VAR_PREFIX}argf{tmp_counter}"
+            compiled_prefix.extend(
+                compile_numeric_expression(api, target_var=f"var({tmp_name})", expr_node=node, name_map=name_map)
+            )
+            kv_resolved[pname] = f"var({tmp_name})"
+            changed = True
+
+        if not changed:
+            return None
+
+        rebuilt_parts: list[str] = []
+        used_pos = min(len(pos or []), len(params))
+        pos_names: set[str] = set()
+        for idx in range(used_pos):
+            pname = params[idx]["name"]
+            pos_names.add(pname)
+            rebuilt_parts.append(kv_resolved.get(pname, (pos or [])[idx]))
+
+        for k, v in (kv or {}).items():
+            if k in pos_names:
+                continue
+            rebuilt_parts.append(f"{k}={kv_resolved.get(k, v)}")
+
+        rebuilt_line = f"{module}.{func}({', '.join(rebuilt_parts)})"
+        final_res = compile_line(api, rebuilt_line)
+        if not final_res:
+            raise ValueError(f"Unknown action: {module}.{func}")
+        return [*compiled_prefix, final_res]
+
+    for line_idx, raw in enumerate(lines, start=1):
         line = raw.strip()
+        if COMPILE_DEEP_DEBUG and (line_idx <= 30 or line_idx % 20 == 0):
+            _compile_dbg(
+                f"line#{line_idx} kind={current_kind or '-'} in_block={in_block} stack_depth={len(block_stack)} actions={len(current_actions)} text={line[:120]}"
+            )
         if not line or line.startswith("#"):
             continue
 
@@ -3429,57 +4445,48 @@ def compile_entries(path: Path) -> list[dict]:
             if line_negated:
                 raise ValueError("NOT недопустим для builtin/sugar выражения")
             for pieces, spec in builtins:
-                args_str = ",".join(pieces)
-                sign1 = strip_colors(spec.get("sign1", "")).strip()
-                sign2 = spec_menu_name(spec)
-                menu = strip_colors(spec.get("menu", "")).strip()
-                sign1_norm = norm_key(sign1)
-                if sign1_norm in sign1_aliases:
-                    sign1_norm = norm_key(sign1_aliases[sign1_norm])
-                block = blocks.get(sign1_norm)
-                if not block:
-                    raise ValueError(
-                        f"Unknown block for sign1='{sign1}' (norm='{sign1_norm}'). Add to allactions.txt or Aliases.json"
-                    )
-                block_tok = block.replace("minecraft:", "")
-                expected_sign2 = strip_colors(spec.get("sign2", "")).strip() or strip_colors(spec.get("gui", "")).strip()
-                StringName = sign2
-                if expected_sign2:
-                    StringName = f"{(menu or sign2)}||{expected_sign2}"
-                append_action((block_tok, StringName, args_str))
+                _append_compiled_action(pieces, spec, negated=False)
+            continue
+
+        compiled_with_formulas = _compile_call_with_arg_formulas(line)
+        if compiled_with_formulas:
+            for i, (pieces, spec) in enumerate(compiled_with_formulas):
+                negated_here = line_negated and (i == len(compiled_with_formulas) - 1)
+                if negated_here:
+                    module_hint = (line.split("(", 1)[0].split(".", 1)[0] if "(" in line else "").strip()
+                    if not _spec_is_conditional(module_hint, spec):
+                        raise ValueError(f"NOT недопустим для неусловного действия: {line}")
+                _append_compiled_action(pieces, spec, negated=negated_here)
             continue
 
         res = compile_line(api, line)
         if not res:
+            _report_unresolved_line(idx=line_idx, raw_line=line, in_scope=in_block)
             continue
         pieces, spec = res
-        args_str = ",".join(pieces)
         module_hint = (line.split("(", 1)[0].split(".", 1)[0] if "(" in line else "").strip()
         if line_negated and not _spec_is_conditional(module_hint, spec):
             raise ValueError(f"NOT недопустим для неусловного действия: {line}")
+        _append_compiled_action(pieces, spec, negated=line_negated)
 
-        sign1 = strip_colors(spec.get("sign1", "")).strip()
-        sign2 = spec_menu_name(spec)
-        menu = strip_colors(spec.get("menu", "")).strip()
-        sign1_norm = norm_key(sign1)
-        # apply alias if needed
-        if sign1_norm in sign1_aliases:
-            sign1_norm = norm_key(sign1_aliases[sign1_norm])
-        block = blocks.get(sign1_norm)
-        if not block:
-            raise ValueError(f"Unknown block for sign1='{sign1}' (norm='{sign1_norm}'). Add to allactions.txt or Aliases.json")
-        # PlaceModule accepts blockTok without minecraft: prefix too, but keep raw path
-        block_tok = block.replace("minecraft:", "")
-        expected_sign2 = strip_colors(spec.get("sign2", "")).strip() or strip_colors(spec.get("gui", "")).strip()
-        StringName = sign2
-        if expected_sign2:
-            StringName = f"{(menu or sign2)}||{expected_sign2}"
-        if line_negated:
-            append_action((block_tok, StringName, args_str, True))
-        else:
-            append_action((block_tok, StringName, args_str))
-
+    _compile_dbg(f"compile_loop.end entries_before_flush={len(entries)}")
     flush_block()
+    _compile_dbg(f"after_flush entries={len(entries)}")
+    entries, collapsed_autosplit = _collapse_autosplit_trampoline_funcs(entries)
+    _compile_dbg(f"after_collapse_autosplit entries={len(entries)} collapsed={collapsed_autosplit}")
+    if collapsed_autosplit:
+        print(
+            f"[warn] row auto-split post-pass: collapsed {collapsed_autosplit} trampoline helper function(s)",
+            file=__import__("sys").stderr,
+        )
+    entries, promoted_named = _promote_autosplit_targets_into_named_wrappers(entries)
+    _compile_dbg(f"after_promote_named entries={len(entries)} promoted={promoted_named}")
+    if promoted_named:
+        print(
+            f"[warn] row auto-split post-pass: promoted {promoted_named} named wrapper function(s)",
+            file=__import__("sys").stderr,
+        )
+    _compile_dbg(f"compile_entries.done entries={len(entries)}")
     return entries
 
 def compile_commands(path: Path) -> list[str]:
